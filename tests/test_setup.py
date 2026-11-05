@@ -53,6 +53,8 @@ def test_build_runtime_creates_and_is_idempotent(tmp_path, fake_python):
     assert b["python_sha256"] == setup.sha256(fake_python) and b["requirements"] == setup.requirements()
     assert any(c[0] == "/usr/bin/codesign" and "--sign" in c and "-" in c for c in run.calls)
     assert any("pip" in c and "install" in c for c in run.calls)
+    resets = [c for c in run.calls if c[0] == "/usr/bin/tccutil"]
+    assert {c[2] for c in resets} == set(setup.TCC_SERVICES) and all(c[3] == setup.HELPER_BUNDLE_ID for c in resets)
     assert setup.build_is_current(paths, fake_python) == (True, "up to date")
     n = len(run.calls)
     setup.build_runtime(paths, python=fake_python, run=run, say=lambda s: None)
@@ -125,7 +127,9 @@ def test_doctor_reports_missing_runtime_with_fix(tmp_path, monkeypatch):
 def test_doctor_permission_rows(tmp_path, fake_python, monkeypatch):
     paths = setup.Paths(tmp_path)
     setup.build_runtime(paths, python=fake_python, run=FakeRun(), say=lambda s: None)
-    (paths.models / "hub" / "models--Systran--faster-whisper-base.en").mkdir(parents=True)
+    snap = paths.models / "hub" / "models--Systran--faster-whisper-base.en" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "model.bin").write_bytes(b"x")
     monkeypatch.setattr(setup, "platform_problems", lambda: [])
     monkeypatch.setattr(setup, "host_python", lambda: fake_python)
     pf = {"pid": 5, "permissions": {"screen_capture": False, "microphone": "authorized",
@@ -138,3 +142,15 @@ def test_doctor_permission_rows(tmp_path, fake_python, monkeypatch):
     pf["permissions"]["screen_capture"] = True
     pf["screen_capture_works"] = True
     assert doctor.render(doctor.check(paths, run_preflight=lambda *a, **k: pf))[1] == 0
+
+
+def test_model_download_skipped_when_present(tmp_path):
+    paths, run, said = setup.Paths(tmp_path), FakeRun(), []
+    setup.download_model(paths, "base.en", run=run, say=said.append)
+    assert run.calls and "Downloading" in said[0]
+    snap = paths.models / "hub" / "models--Systran--faster-whisper-base.en" / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "model.bin").write_bytes(b"x")
+    run2 = FakeRun()
+    setup.download_model(paths, "base.en", run=run2, say=said.append)
+    assert run2.calls == [] and "already downloaded" in said[-1]

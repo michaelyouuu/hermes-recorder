@@ -38,6 +38,7 @@ USAGE = {
     "NSScreenCaptureUsageDescription": "Hermes Recorder captures audio from apps you choose, locally on this Mac.",
 }
 BUILD_VERSION = 1
+TCC_SERVICES = ("ScreenCapture", "Microphone", "Accessibility", "ListenEvent")
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -183,6 +184,10 @@ def build_runtime(paths: Paths, python: Path | None = None, run: Run = subproces
         check=True, capture_output=True, text=True)
     say("  building and signing the helper app")
     build_app(paths.app, python, HELPER_BUNDLE_ID, HELPER_NAME, HELPER_EXE, USAGE, run=run)
+    # macOS keys ad-hoc grants to the exact build. A stale entry for our bundle id shows as "on" in
+    # System Settings but doesn't apply to the new build and suppresses the prompt, so clear ours only.
+    for service in TCC_SERVICES:
+        run(["/usr/bin/tccutil", "reset", service, HELPER_BUNDLE_ID], check=False, capture_output=True, text=True)
     build = {"build_version": BUILD_VERSION, "python": str(python), "python_sha256": sha256(python),
              "python_home": str(python_home(python)), "requirements": reqs, "app": str(paths.app),
              "bundle_id": HELPER_BUNDLE_ID, "built_at": time.time()}
@@ -192,7 +197,15 @@ def build_runtime(paths: Paths, python: Path | None = None, run: Run = subproces
     return build
 
 
+def model_present(paths: Paths, model: str) -> bool:
+    snaps = paths.models / "hub" / f"models--Systran--faster-whisper-{model}" / "snapshots"
+    return any(p.joinpath("model.bin").exists() for p in snaps.glob("*")) if snaps.exists() else False
+
+
 def download_model(paths: Paths, model: str, run: Run = subprocess.run, say: Callable[[str], None] = print) -> None:
+    if model_present(paths, model):
+        say(f"Transcription model '{model}' is already downloaded.")
+        return
     say(f"Downloading the '{model}' transcription model from Hugging Face (once, ~150-900 MB)…")
     paths.models.mkdir(parents=True, exist_ok=True)
     code = ("import sys; from faster_whisper import WhisperModel; "

@@ -44,7 +44,7 @@ def check(paths: setup.Paths, run_preflight: Callable[..., dict] = setup.run_pre
     if not ok:
         return rows
     model = str(runtime.config("whisper_model") or "base.en")
-    have_model = any(paths.models.glob(f"hub/models--Systran--faster-whisper-{model}"))
+    have_model = setup.model_present(paths, model)
     row("Transcription model", have_model, model, "" if have_model else "Run `hermes recorder setup` to download it.")
     pf = run_preflight(paths, request=False, events=False)
     if "error" in pf:
