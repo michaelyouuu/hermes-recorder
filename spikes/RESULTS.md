@@ -87,10 +87,11 @@ Models downloaded from Hugging Face on first load: tiny.en 149 MB, base.en 282 M
 - `AXManualAccessibility` makes Edge expose page elements: `AXButton "Log in"`, `AXTextField` placeholder
   "Email", the address bar (`"Address and search bar"`), and a search-result link's text.
 - Password field correctly identified as `AXTextField/AXSecureTextField` (placeholder "Password").
-  **No keystrokes from it reached the tap at all**: zero typed events while it was focused. Likely
-  cause: macOS Secure Event Input withholds key events from event taps while a secure field is focused.
-  (To confirm with Michael that he actually typed there.) Either way, the AXSecureTextField check stays as
-  a second guard.
+  **No keystrokes from it reached the tap at all**, even though Michael confirmed he typed a password.
+  macOS Secure Event Input withholds key events from every event tap while a secure field is focused,
+  so password characters are unreachable at the OS level. The AXSecureTextField check stays as a second
+  guard (for apps that draw their own password fields), and the step is recorded as "entered secret into
+  field X" from the click on the secure field.
 - Masking worked: the `gs_lcrp` token in a Google URL became `{TOKEN}`.
 - **Bug, fixed:** the address bar's typed value was read after navigation, so it showed the resulting URL
   rather than the query typed. Now the last value is kept while focus is still on the field.
@@ -105,3 +106,19 @@ Models downloaded from Hugging Face on first load: tiny.en 149 MB, base.en 282 M
 ### Performance
 Idle loop p50 0.07 ms, but a single AX call can block up to the 0.25 s messaging timeout (one 261 ms
 tick observed). **In the helper, run AX look-ups on a worker thread, not the run-loop thread that owns the tap.**
+
+### Compiler check: Notes slice -> SKILL.md draft — PASS with gaps
+`spikes/s3_normalize.py` turns 22 raw events into 12 steps (Dock launch, New Note, typing deltas, Format,
+Highlight, Checklist). Drafting from that slice (done by Claude in-session, standing in for `ctx.llm`) gave
+`spikes/s3_draft_SKILL.md`: a recognisable, replayable skill with 3 inputs and 3 edge-case questions.
+Gaps that need fixing in M3:
+- **Text selection isn't captured.** We only see mouse-down, so "select the line, then Highlight" had to
+  be guessed. Capture drags/shift-selection, or read `AXSelectedText` (a range, not the content, for
+  privacy) when a format control is clicked.
+- **Unlabeled menu rows** (`_NS:38`) still occur. The static-text fix should label them; otherwise ask about them as an
+  edge-case question, which the draft already does.
+- **Intent is guessed without narration.** With nonsense test text the draft can't tell what the note is
+  for. Narration (mic, already working in S1/S2) and the "why" questions carry the intent.
+- Clicks that only refocus the field (steps 4, 8, 12) are noise; drop them in normalization.
+
+## S1(b) — still PENDING (needs gateway restart, awaiting OK)
