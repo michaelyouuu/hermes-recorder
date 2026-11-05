@@ -107,7 +107,9 @@ class ControlServer:
                 else:
                     apps = req.get("apps")
                     apps = [str(a) for a in apps] if isinstance(apps, list) else None
-                    reply = self.handle(req["op"], apps)
+                    fb = req.get("fallback_apps")
+                    fb = [str(a) for a in fb] if isinstance(fb, list) else None
+                    reply = self.handle(req["op"], apps, fb) if fb else self.handle(req["op"], apps)
             except Exception as e:  # never let a bad request hurt the gateway
                 reply = {"error": f"{type(e).__name__}: {e}"}
             try:
@@ -116,7 +118,8 @@ class ControlServer:
                 pass
 
 
-def request(data_dir: Path, op: str, apps: list[str] | None = None, timeout: float = 30) -> dict[str, Any]:
+def request(data_dir: Path, op: str, apps: list[str] | None = None, timeout: float = 30,
+            fallback_apps: list[str] | None = None) -> dict[str, Any]:
     """Client side (CLI). Raises ConnectionError when no gateway is listening."""
     sock_path, token_path = paths(data_dir)
     try:
@@ -134,5 +137,7 @@ def request(data_dir: Path, op: str, apps: list[str] | None = None, timeout: flo
         body: dict[str, Any] = {"op": op, "token": token}
         if apps:
             body["apps"] = apps
+        if fallback_apps:
+            body["fallback_apps"] = fallback_apps
         s.sendall((json.dumps(body) + "\n").encode())
         return json.loads(s.makefile("rb").readline(MAX_REQUEST) or b"{}")

@@ -110,3 +110,14 @@ def test_existing_served_socket_is_not_stolen(gateway, short_dir):
         assert control.request(short_dir, "status") == {"state": "other"}
     finally:
         other.stop()
+
+
+def test_hotkey_fallback_used_only_when_no_apps_known(gateway, short_dir):
+    c, rec = gateway
+    c.hooks["pre_gateway_dispatch"]()
+    r = control.request(short_dir, "toggle", fallback_apps=["us.zoom.xos"])
+    assert r["state"] == "running" and r["apps"] == ["Zoom"]
+    control.request(short_dir, "off")
+    r = control.request(short_dir, "toggle", fallback_apps=["com.microsoft.edgemac"])
+    assert r["apps"] == ["Zoom"]  # remembered apps win over the frontmost-app fallback
+    control.request(short_dir, "off")

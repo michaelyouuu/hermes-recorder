@@ -30,6 +30,21 @@ class _HotKeyID(ctypes.Structure):
 _HANDLER = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
 
 
+IGNORE_FRONT = {"com.nousresearch.hermes", "com.apple.finder", "com.apple.Terminal", "com.googlecode.iterm2",
+                "com.apple.dock", "io.github.michaelyouuu.hermes-recorder.helper"}
+
+
+def _frontmost() -> list[str] | None:
+    """The app in front, used only when the recorder doesn't know which apps to capture yet."""
+    try:
+        from AppKit import NSWorkspace
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        bid = str(app.bundleIdentifier()) if app is not None and app.bundleIdentifier() else None
+        return [bid] if bid and bid not in IGNORE_FRONT else None
+    except Exception:
+        return None
+
+
 def _play(name: str) -> None:
     try:
         from AppKit import NSSound
@@ -52,7 +67,7 @@ def run(combo: str, data_dir: str) -> int:
         if not busy.acquire(blocking=False):
             return  # ignore presses while a toggle is in flight
         try:
-            r = control.request(Path(data_dir), "toggle")
+            r = control.request(Path(data_dir), "toggle", fallback_apps=_frontmost())
             state = r.get("state")
             if r.get("error"):
                 log.warning("hotkey toggle error: %s", r["error"])

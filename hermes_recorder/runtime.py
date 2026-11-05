@@ -207,9 +207,12 @@ def remember_apps(apps: list[str]) -> None:
         pass
 
 
-def _control_handle(op: str, apps: list[str] | None) -> dict[str, Any]:
+def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | None = None) -> dict[str, Any]:
+    """``fallback_apps`` (the hotkey sends the frontmost app) is used only if no apps are known yet."""
     from .helper_manager import LaunchError
     rec = get()
+    if not apps and fallback_apps and not (remembered_apps() or config("apps")):
+        apps = fallback_apps
     try:
         if op == "toggle":
             rec.toggle(apps)
