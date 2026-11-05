@@ -70,5 +70,38 @@ Design implications:
 Models downloaded from Hugging Face on first load: tiny.en 149 MB, base.en 282 MB, small.en 927 MB
 (cold load 4.1 s / 3.7 s / 9.9 s).
 
-## S3 Events — PENDING (needs a demo task)
-Script smoke-tested (tap created, processing loop under 0.1 ms when idle).
+## S3 Events — IN PROGRESS
+
+### Run 2: Notes (native app) — element naming PASS
+- Clicks name controls well: `AXButton "New Note"`, `AXButton "Format"`, `AXCheckBox "Highlight"`,
+  `AXButton "Checklist"`, plus the Dock item used to open Notes. The window title is included.
+- One unlabeled hit: a Format-menu style row came back as `AXStaticText` with no title. Fixed by reading
+  the static text's AXValue and climbing to an actionable ancestor.
+- **Bug, fixed:** typed steps carried the *entire* note body (cumulative AXValue). That is wrong for skills
+  and a privacy problem (typing one word in a long email would capture the whole email). Now multi-line
+  fields emit only a delta (`inserted`, `deleted_chars`) against a snapshot taken before the first keystroke.
+  Single-line fields keep their full (short, masked) value.
+- **Bug, fixed:** Return split note typing into fragments. Return now ends a step only in single-line fields.
+
+### Run 3: Edge (Chromium) — web naming PASS, secure field PASS (no leak)
+- `AXManualAccessibility` makes Edge expose page elements: `AXButton "Log in"`, `AXTextField` placeholder
+  "Email", the address bar (`"Address and search bar"`), and a search-result link's text.
+- Password field correctly identified as `AXTextField/AXSecureTextField` (placeholder "Password").
+  **No keystrokes from it reached the tap at all**: zero typed events while it was focused. Likely
+  cause: macOS Secure Event Input withholds key events from event taps while a secure field is focused.
+  (To confirm with Michael that he actually typed there.) Either way, the AXSecureTextField check stays as
+  a second guard.
+- Masking worked: the `gs_lcrp` token in a Google URL became `{TOKEN}`.
+- **Bug, fixed:** the address bar's typed value was read after navigation, so it showed the resulting URL
+  rather than the query typed. Now the last value is kept while focus is still on the field.
+- **Bug, fixed:** the Return that submitted the search was attributed to the new focus (the web area) as
+  an empty typed step. A Return/Tab within 1 s of a focus change now attaches to the previous step.
+- Search-result click hit `AXStaticText` inside the link; now resolved to the `AXLink` ancestor.
+- **Privacy note:** an email address typed into a login form is recorded verbatim. It isn't a secret, but it is
+  PII. Decide in M3 whether to mask emails by default and let the compiler mark them as inputs.
+- Clicks in other apps (Dock, Notification Center, VS Code) are captured too. The real helper enforces
+  the per-app allowlist; system UI like the Dock should be kept as context ("opened Notes from the Dock").
+
+### Performance
+Idle loop p50 0.07 ms, but a single AX call can block up to the 0.25 s messaging timeout (one 261 ms
+tick observed). **In the helper, run AX look-ups on a worker thread, not the run-loop thread that owns the tap.**

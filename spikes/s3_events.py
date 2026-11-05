@@ -68,7 +68,11 @@ def describe(el) -> dict:
         if v not in (None, ""):
             d[k] = str(v)[:120]
     # unlabeled controls: borrow the title of an AXTitleUIElement or the parent
-    if not any(k in d for k in ("title", "desc", "placeholder")):
+    if d.get("role") in ("AXStaticText", "AXMenuItem", "AXCell", "AXRow") and not d.get("title"):
+        v = attr(el, "AXValue")
+        if isinstance(v, str) and v:
+            d["text"] = v[:80]
+    if not any(k in d for k in ("title", "desc", "placeholder", "text")):
         t = attr(attr(el, "AXTitleUIElement"), "AXValue") or attr(attr(el, "AXParent"), "AXTitle")
         if t:
             d["label_from_context"] = str(t)[:120]
@@ -85,6 +89,23 @@ def describe(el) -> dict:
     return d
 
 
+ACTIONABLE = {"AXLink", "AXButton", "AXMenuItem", "AXCheckBox", "AXRadioButton", "AXPopUpButton",
+              "AXMenuButton", "AXTab", "AXCell", "AXRow", "AXDisclosureTriangle"}
+SINGLE_LINE = {"AXTextField", "AXComboBox", "AXSearchField"}
+
+
+def text_delta(before: str, after: str) -> dict:
+    """Common prefix/suffix diff: what was inserted and how many chars were removed."""
+    i = 0
+    while i < min(len(before), len(after)) and before[i] == after[i]:
+        i += 1
+    j = 0
+    while j < min(len(before), len(after)) - i and before[-1 - j] == after[-1 - j]:
+        j += 1
+    return {"inserted": after[i:len(after) - j], "deleted_chars": len(before) - i - j,
+            "field_len_after": len(after)}
+
+
 def is_secure(info: dict) -> bool:
     return info.get("subrole") == "AXSecureTextField" or "secure" in info.get("role", "").lower()
 
@@ -96,6 +117,7 @@ class Recorder:
         self.typing = None  # {"el":..., "info":..., "keys": n, "t0":..., "t1":...}
         self.last_app = None
         self.counts = collections.Counter()
+        self.focus_cache = (None, None)  # (element, value) of the focused field while idle
 
     def emit(self, step: dict) -> None:
         if step.get("app") in DENY:
@@ -113,14 +135,22 @@ class Recorder:
         self.typing = None
         info = t["info"]
         if is_secure(info):
-            value = "{SECRET}"
+            change = {"value": "{SECRET}"}
         else:
-            v = attr(t["el"], "AXValue")
-            value = mask(str(v)) if isinstance(v, (str,)) or v is not None else None
-            if value is not None and len(value) > 500:
-                value = value[:500] + "…"
+            foc = attr(SYS, "AXFocusedUIElement")
+            still = foc is not None and bool(Quartz.CFEqual(foc, t["el"]))
+            v = attr(t["el"], "AXValue") if still else t.get("last_value")
+            after = v if isinstance(v, str) else t.get("last_value")
+            if after is None or t["before"] is None:
+                change = {"value": None}
+            elif info.get("role") in SINGLE_LINE:
+                change = {"value": mask(after)[:500]}  # whole (short) field value
+            else:
+                d = text_delta(t["before"], after)
+                d["inserted"] = mask(d["inserted"])[:500]
+                change = d
         self.emit({"type": "typed", "ts": t["t0"], "ts_end": t["t1"], "keys": t["keys"],
-                   "value": value, "special_keys": t["special"], **{k: v for k, v in info.items()}})
+                   **change, "special_keys": t["special"], **{k: v for k, v in info.items()}})
 
     def check_app(self, ts: float) -> None:
         app = NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -143,26 +173,66 @@ class Recorder:
                 self.flush_typing()
                 err, el = AX.AXUIElementCopyElementAtPosition(SYS, x, y, None)
                 info = describe(el) if err == 0 else {"ax_error": err}
+                if err == 0 and info.get("role") in ("AXStaticText", "AXGroup", "AXImage"):
+                    anc = el
+                    for _ in range(4):
+                        anc = attr(anc, "AXParent")
+                        r = attr(anc, "AXRole")
+                        if r in ACTIONABLE:
+                            target = describe(anc)
+                            target["inner"] = {k: info[k] for k in ("role", "text", "title", "desc") if k in info}
+                            info = target
+                            break
+                if is_secure(info):
+                    self.counts["secure_field_clicks"] += 1
                 self.emit({"type": "click", "ts": ts, "x": round(x), "y": round(y), **info})
             elif kind == "key":
                 foc = attr(SYS, "AXFocusedUIElement")
                 same = self.typing is not None and foc is not None and \
                     bool(Quartz.CFEqual(foc, self.typing["el"]))
+                if not same and keyinfo in ("return", "tab") and self.typing is not None \
+                        and ts - self.typing["t1"] < 1.0:
+                    self.typing["special"].append(keyinfo)
+                    self.typing["keys"] += 1
+                    self.flush_typing()
+                    continue
                 if not same:
                     self.flush_typing()
                     info = describe(foc) if foc is not None else {}
-                    self.typing = {"el": foc, "info": info, "keys": 0, "t0": ts, "t1": ts, "special": []}
+                    # Snapshot the field before this keystroke lands is impossible (tap is listen-only and
+                    # we process ~100 ms later), so snapshot now and remember the first key may be included.
+                    cel, cval = self.focus_cache
+                    if is_secure(info):
+                        b = None
+                    elif cel is not None and bool(Quartz.CFEqual(cel, foc)):
+                        b = cval  # captured before the first keystroke
+                    else:
+                        b = attr(foc, "AXValue")
+                    self.typing = {"el": foc, "info": info, "keys": 0, "t0": ts, "t1": ts, "special": [],
+                                   "before": b if isinstance(b, str) else None}
                 self.typing["keys"] += 1
                 self.typing["t1"] = ts
+                if is_secure(self.typing["info"]):
+                    self.counts["keys_seen_in_secure_field"] += 1
                 if keyinfo in ("return", "tab", "escape"):
                     self.typing["special"].append(keyinfo)
-                    if keyinfo in ("return", "tab"):
-                        # Return/Tab usually commits the field; flush after the app applies it
+                    single = self.typing["info"].get("role") in SINGLE_LINE
+                    if keyinfo == "tab" or (keyinfo == "return" and single):
+                        # commits a single-line field (or moves focus): end this typing step
                         self.flush_typing()
                 elif keyinfo.startswith("cmd+"):
                     self.typing["special"].append(keyinfo)
+        if self.typing and not is_secure(self.typing["info"]):
+            v = attr(self.typing["el"], "AXValue")
+            if isinstance(v, str):
+                self.typing["last_value"] = v
         if self.typing and time.time() - self.typing["t1"] > 2.0:
             self.flush_typing()
+        if self.typing is None:
+            foc = attr(SYS, "AXFocusedUIElement")
+            info_role = attr(foc, "AXSubrole") if foc is not None else None
+            v = None if (foc is None or info_role == "AXSecureTextField") else attr(foc, "AXValue")
+            self.focus_cache = (foc, v if isinstance(v, str) else None)
 
 
 SPECIAL = {36: "return", 48: "tab", 53: "escape", 51: "delete"}
@@ -208,11 +278,15 @@ def main() -> None:
     print(f"recording UI events for {a.seconds:.0f}s -> {a.out}", file=sys.stderr, flush=True)
     end = time.time() + a.seconds
     lat = []
-    while time.time() < end:
-        common.pump(0.1)
-        t = time.time()
-        rec.process()
-        lat.append(time.time() - t)
+    try:
+        while time.time() < end:
+            common.pump(0.1)
+            t = time.time()
+            rec.process()
+            lat.append(time.time() - t)
+    except KeyboardInterrupt:
+        print("stopped early", file=sys.stderr)
+    rec.process()
     rec.flush_typing()
     rec.out.close()
     print(json.dumps({"counts": rec.counts, "process_ms_p50": 1000 * sorted(lat)[len(lat) // 2],
