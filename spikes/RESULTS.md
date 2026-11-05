@@ -130,4 +130,46 @@ Gaps that need fixing in M3:
 - Not covered by this run: the address-bar search fix (no query typed) and a secure field (the sign-in
   flow didn't reach the password step). The password result from Run 3 stands.
 
-## S1(b) — still PENDING (needs gateway restart, awaiting OK)
+## S1(b) Child of the real gateway — FAIL as designed; FIXED by a helper .app (S1c)
+
+### Setup
+Stopped the VS Code-launched gateway. Hermes relaunched it automatically as a one-off launchd job via
+`/usr/bin/osascript` (`hermes_cli/gateway_launchd_runtime.py`). Desktop chats ran their tools **in that
+gateway** (probe's parent pid = gateway pid) and no `hermes serve` was running, so Telegram/other
+messaging behave the same. A throwaway plugin `~/.hermes/plugins/s1-probe` ran the S1 script.
+
+### Result with the helper as a plain child: unusable
+- TCC responsible process = **`/usr/bin/osascript`**. The mic prompt named "osascript" and was allowed.
+- Screen & System Audio was not granted -> SCK error `-3801 user declined TCCs`. Accessibility and
+  Input Monitoring were not granted either.
+- Even if granted, giving osascript Screen Recording, Accessibility and Input Monitoring would hand them to
+  every AppleScript run by any program. **Not acceptable to ship.**
+- Caution: running `hermes gateway restart` from a terminal ran the gateway in the foreground of that
+  terminal (attributed to VS Code). `hermes gateway stop` then let Hermes relaunch it via osascript.
+
+## S1(c) Helper as its own generated .app — PASS for audio (events pending)
+`spikes/s1c_build_helper_app.sh` builds `Hermes Recorder Helper.app` locally: Info.plist with bundle id
+`io.github.michaelyouuu.hermes-recorder.helper`, `LSUIElement`, mic/audio/screen usage strings,
+`LSEnvironment PYTHONHOME`; the executable is a **copy of Hermes's own python3.14** (python-build-standalone,
+only system dylibs); ad-hoc signed with `codesign -s -`. Launched with
+`open -n -W --env PYTHONPATH=<venv site-packages> -a <app> --args <script>`. Nothing compiled is committed.
+
+| Run (launched from gateway via probe) | Responsible | Screen | Mic | App audio + mic capture |
+| --- | --- | --- | --- | --- |
+| 1, with prompts | helper itself | no | granted ("Hermes Recorder Helper") | fail (-3801) |
+| 2, after enabling in System Settings | helper itself | yes | yes | **PASS**: 3.2 s app audio + mic |
+| 3, fresh launch from terminal, no prompts | helper itself | yes | yes | **PASS**: grants persist |
+
+- Launching through LaunchServices makes the helper responsible for itself **no matter who launches it**
+  (osascript gateway, VS Code, Desktop). Attribution no longer depends on how the user started Hermes.
+- The fourth run (from the gateway, `request false`) wrote no result, and the probe returned the previous
+  line (a probe bug). Cause unknown. `open --stdout` reproducibly fails with LaunchServices `-10810`.
+  **The helper manager must confirm the helper's `hello` over the socket, and retry or report a clear error.**
+- Accessibility and Input Monitoring: still false (pending: were they toggled for the helper?).
+- Risk: ad-hoc grants are tied to the code hash. Rebuilding the .app with the same python binary keeps the
+  hash; a Hermes python update changes it, so the user re-grants. `hermes recorder doctor` must detect this.
+- Process model changes: no stdin/stdout pipes through `open`, so the Unix socket is the only channel
+  (already the design). Parent-death detection must use socket close, not stdin. `open -W` blocks, so
+  the manager should launch without `-W` and track the pid from the `hello` message.
+- Catalog rule 17 (no compiled binaries in the repo) is respected: the bundle is generated at
+  `hermes recorder setup` from the user's existing interpreter. Disclose it in README/PR.
