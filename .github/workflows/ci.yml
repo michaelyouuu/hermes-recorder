@@ -29,7 +29,7 @@ jobs:
         working-directory: hermes-agent
         run: |
           uv sync --frozen --python 3.14
-          uv pip install --python .venv/bin/python "pytest>=8,<9"
+          uv pip install --python .venv/bin/python "pytest>=8,<9" "numpy>=2,<3"
           echo "$GITHUB_WORKSPACE/hermes-agent/.venv/bin" >> "$GITHUB_PATH"
       - name: Unit tests
         run: python -m pytest tests -q -p no:cacheprovider --ignore=tests/integration
