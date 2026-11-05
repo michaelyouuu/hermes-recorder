@@ -43,6 +43,16 @@ Then in any Hermes surface: `/recorder on com.google.Chrome` (any app's bundle i
   macOS asks for permissions in its name, whoever started Hermes. Nothing compiled ships with the plugin;
 - the transcription model (`base.en`, ~280 MB on disk), downloaded once from Hugging Face.
 
+## Global hotkey
+Start and stop capture from any app without asking Hermes:
+1. Open the **Shortcuts** app → **New Shortcut** → add **Run Shell Script** with
+   `~/.local/bin/hermes recorder toggle` (use the full path: `which hermes` shows it).
+2. In the shortcut's details (ⓘ), **Add Keyboard Shortcut**, for example ⌃⌥R.
+
+`toggle` reuses the apps you last captured (or the `apps` setting). You can also run
+`hermes recorder on com.google.Chrome` or `hermes recorder off` directly. Right after Hermes restarts, the
+recorder starts listening once Hermes has handled its first message or chat; until then, `toggle` says so.
+
 ## Permissions
 | Permission | Needed for | How it's granted |
 | --- | --- | --- |

@@ -34,6 +34,11 @@ DEV_FIXTURE_ENV = "HERMES_RECORDER_DEV_FIXTURE"
 _ctx = None
 _recorder: "Recorder | None" = None
 _lock = threading.Lock()
+_control = None  # control.ControlServer once started in the gateway
+_control_tried = False
+# Turns from these surfaces run in a short-lived CLI/TUI process with its own buffer, not the gateway.
+NON_GATEWAY_PLATFORMS = frozenset({"cli", "tui", "acp", ""})
+LAST_APPS_KEY = "last_apps"
 
 
 def app_name(bundle_id: str | None) -> str:
@@ -93,10 +98,11 @@ class Recorder:
 
     # ------------------------------------------------------------------ actions
     def start(self, apps: list[str] | None = None) -> None:
-        apps = list(apps or config("apps") or [])
+        apps = list(apps or remembered_apps() or config("apps") or [])
         opts = {k: config(k) for k in ("whisper_model", "capture_mic", "capture_events", "capture_snapshots")}
         try:
             self.manager.start(apps, opts)
+            remember_apps(self.manager.apps)
         finally:
             self.write_status()
 
@@ -114,7 +120,14 @@ class Recorder:
 
     def set_apps(self, apps: list[str]) -> None:
         self.manager.set_apps(apps)
+        remember_apps(self.manager.apps)
         self.write_status()
+
+    def toggle(self, apps: list[str] | None = None) -> None:
+        if self.manager.state in ("running", "paused", "starting"):
+            self.stop()
+        else:
+            self.start(apps)
 
     def forget(self) -> None:
         """Clear the live buffer (saved clips arrive with SQLite storage later)."""
@@ -170,6 +183,94 @@ class Recorder:
         return f"[Recorder: live capture of {names}; {avail}{mic} via screen_recall{teach}]"
 
 
+_memory_apps: list[str] = []
+
+
+def remembered_apps() -> list[str]:
+    try:
+        if _ctx is not None:
+            v = _ctx.state.get(LAST_APPS_KEY, default=None)
+            if isinstance(v, list):
+                return [str(a) for a in v]
+    except Exception:
+        pass
+    return list(_memory_apps)
+
+
+def remember_apps(apps: list[str]) -> None:
+    global _memory_apps
+    _memory_apps = list(apps)
+    try:
+        if _ctx is not None:
+            _ctx.state.set(LAST_APPS_KEY, list(apps))
+    except Exception:
+        pass
+
+
+def _control_handle(op: str, apps: list[str] | None) -> dict[str, Any]:
+    from .helper_manager import LaunchError
+    rec = get()
+    try:
+        if op == "toggle":
+            rec.toggle(apps)
+        elif op == "on":
+            rec.start(apps)
+        elif op == "off":
+            rec.stop()
+    except LaunchError as e:
+        return {**_brief(rec), "error": str(e)}
+    return _brief(rec)
+
+
+def _brief(rec: Recorder) -> dict[str, Any]:
+    st = rec.status()
+    return {"state": st["state"], "apps": [a["name"] for a in st["apps"]], "error": st["error"],
+            "minutes_available": st["buffer"]["minutes_available"]}
+
+
+def _socket_is_served(path: Path) -> bool:
+    import socket as _s
+    if not path.exists():
+        return False
+    c = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
+    c.settimeout(0.3)
+    try:
+        c.connect(str(path))
+        return True
+    except OSError:
+        return False
+    finally:
+        c.close()
+
+
+def ensure_control(platform: str | None = None, in_gateway: bool = False) -> None:
+    """Start the hotkey control socket the first time the plugin is active in the gateway. Never raises.
+
+    Called from hooks and tools, never from register(). CLI/TUI turns run in their own short-lived process
+    with a separate buffer, so they must not take the socket.
+    """
+    global _control, _control_tried
+    if _control is not None or _control_tried:
+        return
+    if not in_gateway and (platform is None or str(platform).lower() in NON_GATEWAY_PLATFORMS):
+        return
+    with _lock:
+        if _control is not None or _control_tried:
+            return
+        _control_tried = True
+        try:
+            from .control import ControlServer, paths
+            d = data_dir()
+            if _socket_is_served(paths(d)[0]):
+                log.info("hermes-recorder: control socket already served by another process")
+                return
+            srv = ControlServer(d, _control_handle)
+            srv.start()
+            _control = srv
+        except Exception as e:
+            log.warning("hermes-recorder: control socket unavailable: %s", e)
+
+
 def get() -> Recorder:
     global _recorder
     with _lock:
@@ -184,9 +285,16 @@ def peek() -> Recorder | None:
 
 
 def shutdown() -> None:
-    global _recorder
+    global _recorder, _control, _control_tried
     with _lock:
         r, _recorder = _recorder, None
+        c, _control = _control, None
+        _control_tried = False
+    if c is not None:
+        try:
+            c.stop()
+        except Exception:
+            pass
     if r is not None:
         try:
             r.stop()
@@ -195,5 +303,7 @@ def shutdown() -> None:
 
 
 def reset_for_tests(recorder: Recorder | None = None) -> None:
-    global _recorder
+    global _recorder, _control_tried, _memory_apps
     _recorder = recorder
+    _control_tried = False
+    _memory_apps = []

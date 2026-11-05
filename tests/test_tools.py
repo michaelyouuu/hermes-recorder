@@ -67,7 +67,7 @@ def test_register_is_side_effect_free(tmp_path):
     c = FakeCtx()
     registration.register_all(c)
     assert set(c.tools) == {"screen_recall", "recorder_status", "recorder_control", "recorder_draft_skill"}
-    assert set(c.hooks) == {"pre_llm_call", "on_session_end"}
+    assert set(c.hooks) == {"pre_llm_call", "on_session_end", "pre_gateway_dispatch"}
     assert set(c.commands) == {"recorder", "teach"} and "recorder" in c.cli and c.unload
     assert runtime.peek() is None  # nothing created by register()
 

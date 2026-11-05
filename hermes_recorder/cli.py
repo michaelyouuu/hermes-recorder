@@ -5,7 +5,10 @@ import json
 import subprocess
 import time
 
-from . import doctor, runtime, setup
+from . import control, doctor, runtime, setup
+
+NOT_LOADED = ("Hermes hasn't loaded the recorder in the gateway yet (it starts listening on the first "
+              "message or chat after a restart). Send Hermes any message, then retry.")
 
 
 def setup_parser(parser) -> None:
@@ -15,6 +18,11 @@ def setup_parser(parser) -> None:
     p.add_argument("--force", action="store_true", help="Rebuild even if up to date")
     p.add_argument("--no-prompts", action="store_true", help="Don't trigger the macOS permission prompts")
     sub.add_parser("doctor", help="Check permissions and helper health, with exact fix steps")
+    on = sub.add_parser("on", help="Start capture in the running gateway (last apps if none given)")
+    on.add_argument("apps", nargs="*", help="Bundle ids, e.g. com.google.Chrome")
+    sub.add_parser("off", help="Stop capture in the running gateway")
+    t = sub.add_parser("toggle", help="Start or stop capture (bind this to a global hotkey)")
+    t.add_argument("apps", nargs="*", help="Bundle ids to use when starting")
 
 
 def _status() -> int:
@@ -60,8 +68,24 @@ def _setup(args) -> int:
     return code
 
 
+def _control(op: str, apps: list[str] | None) -> int:
+    try:
+        r = control.request(runtime.data_dir(), op, apps or None)
+    except ConnectionError:
+        print(NOT_LOADED)
+        return 1
+    apps_s = ", ".join(r.get("apps") or []) or "no apps"
+    if r.get("error"):
+        print(f"Recorder: {r.get('state', 'error')} · {r['error']}")
+        return 1
+    print(f"Recorder: {r.get('state')} · {apps_s}")
+    return 0
+
+
 def run(args) -> int:
     cmd = getattr(args, "recorder_cmd", None) or "status"
+    if cmd in ("on", "off", "toggle"):
+        return _control(cmd, getattr(args, "apps", None))
     if cmd == "status":
         return _status()
     if cmd == "setup":

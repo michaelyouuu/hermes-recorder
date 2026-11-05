@@ -15,6 +15,7 @@ def register_all(ctx) -> None:
     ctx.register_tool(name="recorder_draft_skill", toolset=TOOLSET, schema=schemas.DRAFT_SCHEMA, handler=tools.draft_skill)
     ctx.register_hook("pre_llm_call", hooks.pre_llm_call)
     ctx.register_hook("on_session_end", hooks.on_session_end)
+    ctx.register_hook("pre_gateway_dispatch", hooks.pre_gateway_dispatch)
     ctx.register_command("recorder", commands.recorder, description="Start, stop or check local capture",
                          args_hint="[on|off|pause|resume|status|forget] [apps]")
     ctx.register_command("teach", commands.teach, description="Draft a skill from the last N minutes",

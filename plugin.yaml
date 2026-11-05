@@ -19,4 +19,4 @@ config_schema:
   capture_snapshots: {type: bool, default: false, label: "Capture low-rate snapshots (RAM only)"}
   autostart: {type: bool, default: false, label: "Start capture on the first recorder tool call"}
 provides_tools: [screen_recall, recorder_status, recorder_control, recorder_draft_skill]
-provides_hooks: [pre_llm_call, on_session_end]
+provides_hooks: [pre_llm_call, on_session_end, pre_gateway_dispatch]
