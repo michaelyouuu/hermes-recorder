@@ -24,6 +24,7 @@ import Quartz  # noqa: E402
 import HIServices as AX  # noqa: E402
 from AppKit import NSWorkspace, NSRunningApplication  # noqa: E402
 
+CHROMIUM = {"com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser"}
 SYS = AX.AXUIElementCreateSystemWide()
 AX.AXUIElementSetMessagingTimeout(SYS, 0.25)
 
@@ -126,6 +127,11 @@ class Recorder:
         bid = str(app.bundleIdentifier()) if app else None
         if bid != self.last_app:
             self.last_app = bid
+            if app is not None and bid in CHROMIUM:
+                # Chromium builds its web AX tree lazily; this asks it to expose page elements.
+                app_el = AX.AXUIElementCreateApplication(app.processIdentifier())
+                err = AX.AXUIElementSetAttributeValue(app_el, "AXManualAccessibility", True)
+                self.counts[f"manual_ax_{bid}_{err}"] += 1
             self.emit({"type": "app_switch", "ts": ts, "app": bid,
                        "app_name": str(app.localizedName()) if app else None})
 

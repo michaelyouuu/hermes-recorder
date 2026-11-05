@@ -33,7 +33,40 @@ with faster-whisper 1.2.1 + pyobjc 13.
 
 ### (b) Child of a gateway launched by Hermes Desktop — PENDING (needs user)
 
-## S2 Audio + latency — PENDING (needs Chrome playing a lecture)
+## S2 Audio + latency — PASS (base.en)
+Source: Microsoft Edge (`com.microsoft.edgemac`) playing a YouTube lecture (Karpathy, "Deep Dive into
+LLMs", from ~4:00), 60 s run (shortened from 3 min). Apple M4, 10 cores. 5 s windows, 4 s hop, VAD on,
+int8, beam 1, 4 CPU threads.
+
+Live with base.en (while capturing):
+- Lag after each window closes: **p50 0.40 s, max 0.88 s** (the max was the first window, warm-up).
+  Worst case from speech to text ≈ 5.9 s (window length + processing). Typical ≈ 2.5 s + 0.4 s.
+- CPU: **34% of one core averaged** ≈ 3.4% of the whole 10-core machine. Peak RSS 679 MB (model + runtime).
+- 0 silent windows: per-app filtering captured Edge audio correctly with nothing else playing.
+
+Offline on the same audio (non-overlapping 5 s windows):
+
+| Model | RTF | Est. live CPU (% of one core) | Proc p50 / max per window | WER vs small.en |
+| --- | --- | --- | --- | --- |
+| tiny.en | 0.031 | 16% | 0.14 / 0.29 s | 0.09 |
+| base.en | 0.063 | 32% | 0.30 / 0.53 s | 0.03 |
+| small.en | 0.192 | 96% | 0.95 / 1.14 s | (reference) |
+
+Accuracy spot check against the video: base.en is near-verbatim. Errors were proper nouns ("FineWeb" heard as
+"find web") and once "heuristics" heard as "he wrist sticks" in the live run.
+
+Design implications:
+- **Keep `base.en` as the default.** `small.en` is usable on an M4 but costs about a full core.
+  mlx-whisper fallback not needed.
+- **The 1 s overlap duplicates phrases** at window edges ("...want them in our / because we don't want them
+  in our dataset"). The buffer must merge overlaps by finding the longest common word run at the boundary,
+  or use VAD-based segmentation instead of fixed windows.
+- **The first window hallucinates** a short filler word ("Hi.", "All right.", "to hide") when it starts
+  mid-word. Drop very short first-window segments and segments with low avg_logprob or high no_speech_prob.
+- **Memory:** helper RSS is ~0.7 GB because of the model. The 50 MB budget in Section 12 applies to the
+  plugin's buffer, not the helper. State the helper's RAM use in the README.
+- The per-app filter (`includingApplications`) works with a browser, so "capture Edge only" is real.
+
 Models downloaded from Hugging Face on first load: tiny.en 149 MB, base.en 282 MB, small.en 927 MB
 (cold load 4.1 s / 3.7 s / 9.9 s).
 

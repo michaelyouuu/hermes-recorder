@@ -96,17 +96,20 @@ def live(app: str, seconds: float, model_name: str) -> dict:
     cap.start()
     next_end = WIN_S
     end_at = time.time() + seconds
-    while time.time() < end_at:
-        common.pump(0.2)
-        with lock:
-            n = total["n"]
-        while n >= next_end * RATE:
+    try:
+        while time.time() < end_at:
+            common.pump(0.2)
             with lock:
-                buf = np.concatenate(chunks) if chunks else np.zeros(0, np.float32)
-            s = int((next_end - WIN_S) * RATE)
-            e = int(next_end * RATE)
-            windows.put((t0["t"] + next_end, buf[s:e].copy()))
-            next_end += HOP_S
+                n = total["n"]
+            while n >= next_end * RATE:
+                with lock:
+                    buf = np.concatenate(chunks) if chunks else np.zeros(0, np.float32)
+                s = int((next_end - WIN_S) * RATE)
+                e = int(next_end * RATE)
+                windows.put((t0["t"] + next_end, buf[s:e].copy()))
+                next_end += HOP_S
+    except KeyboardInterrupt:
+        print("stopped early; saving what was captured", flush=True)
     cap.stop()
     windows.put(None)
     th.join(timeout=60)
