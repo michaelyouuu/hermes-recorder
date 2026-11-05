@@ -514,6 +514,7 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Setup resets our bundle's TCC grants only when the app's CDHash changes | A stale entry from an older build shows "on" but doesn't apply and suppresses the prompt; resetting on an identical rebuild wiped valid grants (both seen live) |
 | 2026-11-05 | ScreenCaptureKit only lists apps that own a window | Background-only apps can't be captured (known issue); the e2e test player opens a 1x1 off-screen window |
 | 2026-11-05 | M2 ask mode verified live: Desktop HUD answered about a YouTube video in Edge via `screen_recall` (~10 ms per call); helper ~5% of one core, ~250 MB RSS | Observed by Michael and in logs |
+| 2026-11-05 | Zoom "them" audio left unverified; checked during demo rehearsal with a real two-person call (FaceTime fallback) | Live Zoom stream was all zeros, but probes ran concurrently with the helper and were invalid; Michael paused the investigation |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---

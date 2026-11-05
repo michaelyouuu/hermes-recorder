@@ -196,10 +196,16 @@ Cleanup done: throwaway `s1-probe` plugin disabled and deleted. The gateway is r
 normally runs it. Left for Michael: osascript's Microphone grant from S1(b) can be revoked in System Settings ->
 Privacy & Security -> Microphone.
 
-## S4 (M2 live finding): Zoom app audio arrives as digital silence — IN PROGRESS
+## S4 (M2 live finding): Zoom "them" audio — UNVERIFIED (paused)
 During a live Zoom call, the helper's per-app stream for `us.zoom.xos` delivered ~105 s of buffers with peak 0.0,
 while the mic stream carried speech (peak 0.46). All 13 lines were "me". The other side was only heard through speaker
 bleed into the mic. Edge (YouTube) app audio works. Hypothesis: Zoom renders call audio in a process that isn't
 the windowed `zoom.us` app (e.g. its `caphost` child, or a voice-processing path), so SCK's per-app filter
 excludes it. `spikes/s4_audio_processes.py` (CoreAudio process objects via ctypes) lists which PIDs are
 playing audio, to confirm during a call.
+- Follow-up: CoreAudio shows the main `zoom.us` process (not a child) playing and recording audio, so the per-app filter
+  targets the right process. A/B probes run *while the recorder helper was also capturing* returned nothing even
+  system-wide, so they're invalid (concurrent SCK audio streams from separate processes appear to starve). The silent
+  stream may simply have been a quiet meeting (Zoom keeps its audio IO running throughout).
+- Status: paused at Michael's request. Verify with one normal call with another person speaking (recorder on Zoom,
+  no other probes running) during demo rehearsal. FaceTime is the fallback for the me/them demo.
