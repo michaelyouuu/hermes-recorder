@@ -143,3 +143,15 @@ def test_stop_is_idempotent(tmp_path):
     m.stop()
     m.stop()
     assert m.state == "stopped"
+
+
+def test_helper_status_messages_are_exposed(tmp_path):
+    m, _, _, _ = make(tmp_path, extra=["--hold"])
+    seen = []
+    m.on_status = lambda: seen.append(1)
+    m.start(["us.zoom.xos"])
+    m._handle_line(b'{"v":1,"type":"status","ts":1,"capturing":["us.zoom.xos"],"missing_apps":[],"rss_mb":240.5}\n')
+    st = m.status()["helper"]
+    assert st["capturing"] == ["us.zoom.xos"] and st["missing_apps"] == [] and st["rss_mb"] == 240.5
+    assert seen == [1]
+    m.stop()

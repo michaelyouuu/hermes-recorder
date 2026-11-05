@@ -157,6 +157,8 @@ class HelperManager:
         self._restarts = 0
         self.counters = {"lines": 0, "stored": 0, "dropped_privacy": 0, "bad_lines": 0, "rejected_conns": 0}
         self.started_at: float | None = None
+        self.helper_status: dict[str, Any] = {}   # latest periodic `status` from the helper
+        self.on_status: Callable[[], None] | None = None  # e.g. refresh status.json
         self.last_line_at: float | None = None
 
     # ------------------------------------------------------------------ public API
@@ -241,6 +243,10 @@ class HelperManager:
             "state": self._state, "apps": self.apps, "error": self._error,
             "helper": {"pid": hello.get("pid"), "version": hello.get("helper_version"),
                        "permissions": hello.get("permissions"), "restarts": self._restarts,
+                       "capturing": self.helper_status.get("capturing"),
+                       "missing_apps": self.helper_status.get("missing_apps"),
+                       "mic": self.helper_status.get("mic", hello.get("mic_supported")),
+                       "rss_mb": self.helper_status.get("rss_mb"),
                        "last_line_age_s": round(time.time() - self.last_line_at, 1) if self.last_line_at else None},
             "counters": dict(self.counters), "protocol_version": proto.PROTOCOL_VERSION,
         }
@@ -337,7 +343,16 @@ class HelperManager:
         if msg.type == "error":
             self._error = str(msg.get("message"))[:500]
             return
-        if msg.type in ("status", "hello", "control"):
+        if msg.type == "status":
+            self.helper_status = {k: msg.get(k) for k in ("capturing", "missing_apps", "paused", "mic",
+                                                          "cpu_s", "rss_mb", "counters")}
+            if self.on_status:
+                try:
+                    self.on_status()
+                except Exception:
+                    pass
+            return
+        if msg.type in ("hello", "control"):
             return
         clean = privacy.sanitize(msg, self._apps)
         if clean is None:

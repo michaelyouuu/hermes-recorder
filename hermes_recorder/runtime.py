@@ -89,6 +89,7 @@ class Recorder:
         self.manager = HelperManager(self.buffer, self.data_dir,
                                      launcher or _dev_launcher() or AppLauncher(self.data_dir))
         self._autostart_tried = False
+        self.manager.on_status = self.write_status  # keep `hermes recorder status` current (every ~15 s)
 
     # ------------------------------------------------------------------ actions
     def start(self, apps: list[str] | None = None) -> None:
