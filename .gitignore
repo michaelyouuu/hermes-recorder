@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Recordings, transcripts, captures (never commit)
+*.wav
+*.m4a
+*.caf
+*.jsonl
+!tests/fixtures/*.jsonl
+spikes/out/
+recordings/
+transcripts/
+
+# Model caches / weights
+models/
+*.bin
+*.safetensors
+.cache/
+
+# macOS
+.DS_Store
