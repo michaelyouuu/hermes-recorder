@@ -19,7 +19,7 @@ PLUGIN_NAME = "hermes-recorder"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS: dict[str, Any] = {
     "apps": [], "buffer_minutes": 30, "whisper_model": "base.en", "capture_mic": True,
-    "capture_events": False, "capture_snapshots": False, "autostart": False,
+    "capture_events": False, "capture_snapshots": False, "autostart": False, "hotkey": "ctrl+opt+r",
 }
 APP_NAMES = {
     "com.google.Chrome": "Google Chrome", "com.microsoft.edgemac": "Microsoft Edge", "com.apple.Safari": "Safari",

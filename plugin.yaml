@@ -18,5 +18,6 @@ config_schema:
   capture_events: {type: bool, default: false, label: "Capture clicks and typing (needed for teach mode)"}
   capture_snapshots: {type: bool, default: false, label: "Capture low-rate snapshots (RAM only)"}
   autostart: {type: bool, default: false, label: "Start capture on the first recorder tool call"}
+  hotkey: {type: str, default: "ctrl+opt+r", label: "Recording hotkey", description: "Global start/stop shortcut, e.g. ctrl+opt+r. Installed by `hermes recorder setup` (opt-in); re-run setup after changing it."}
 provides_tools: [screen_recall, recorder_status, recorder_control, recorder_draft_skill]
 provides_hooks: [pre_llm_call, on_session_end, pre_gateway_dispatch]

@@ -277,9 +277,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--preflight")
     ap.add_argument("--request", action="store_true")
     ap.add_argument("--events", action="store_true")
+    ap.add_argument("--hotkey", help="run only the global hotkey listener, e.g. ctrl+opt+r")
+    ap.add_argument("--data-dir", help="plugin data dir (hotkey mode)")
     a = ap.parse_args(argv)
     if a.preflight:
         return preflight(a.preflight, a.request, a.events)
+    if a.hotkey:
+        hlog.setup(a.log)
+        from helper import hotkey
+        return hotkey.run(a.hotkey, a.data_dir)
     if not (a.socket and a.token):
         ap.error("--socket and --token are required")
     return Helper(a).run()

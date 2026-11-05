@@ -65,6 +65,22 @@ def check(paths: setup.Paths, run_preflight: Callable[..., dict] = setup.run_pre
             "macOS sometimes needs the helper relaunched after granting; run doctor again.")
     if not pf.get("mic_supported", True):
         row("Microphone capture", False, "needs macOS 15 or newer", "App audio still works.", required=False)
+    try:
+        from . import hotkey_agent
+        hk = hotkey_agent.status()
+        want = str(runtime.config("hotkey") or hotkey_agent.DEFAULT_COMBO)
+        if hk["installed"]:
+            detail = f"{hotkey_agent.pretty(hk['combo'] or '?')} {'running' if hk['running'] else 'not running'}"
+            fix = ""
+            if not hk["running"]:
+                fix = "Another app may own this combination: change the 'hotkey' setting and run `hermes recorder hotkey on`."
+            elif hk["combo"] != want:
+                fix = "The 'hotkey' setting changed: run `hermes recorder hotkey on` to apply it."
+            row("Recording hotkey", hk["running"] and hk["combo"] == want, detail, fix, required=False)
+        else:
+            row("Recording hotkey", False, "not installed (optional)", "`hermes recorder hotkey on`", required=False)
+    except Exception:
+        pass
     st = runtime.data_dir() / "status.json"
     if st.exists():
         s = json.loads(st.read_text())
