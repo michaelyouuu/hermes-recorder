@@ -1,0 +1,15 @@
+{"v": 1, "type": "app_switch", "ts": 0.0, "app": "com.microsoft.edgemac", "app_name": "Microsoft Edge"}
+{"v": 1, "type": "transcript", "ts": 5.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "Hi."}
+{"v": 1, "type": "transcript", "ts": 9.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "Types of websites that are just eliminated at this stage because we don't want them in our"}
+{"v": 1, "type": "transcript", "ts": 13.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "because we don't want them in our dataset. The second part is text extraction."}
+{"v": 1, "type": "transcript", "ts": 17.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "You have to remember that all these web pages, this is the raw HTML of these web pages that are being"}
+{"v": 1, "type": "transcript", "ts": 21.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "these web pages that are being saved by these crawlers. So when I go to inspect here,"}
+{"v": 1, "type": "transcript", "ts": 25.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "here. This is what the raw HTML actually looks like. You'll notice that"}
+{"v": 1, "type": "transcript", "ts": 29.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "you'll notice that it's got all this markup like lists and stuff like"}
+{"v": 1, "type": "transcript", "ts": 33.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "and stuff like that and their CSS and all this kind of stuff. So this is um"}
+{"v": 1, "type": "transcript", "ts": 37.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "So this is computer code almost for these web pages. But what we really want is we just want"}
+{"v": 1, "type": "transcript", "ts": 41.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "really want is we just want this text, right? We just want the text of this webpage and we don't want the navigation."}
+{"v": 1, "type": "transcript", "ts": 45.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "And we don't want the navigation and things like that. So there's a lot of filtering and processing and heuristics that"}
+{"v": 1, "type": "transcript", "ts": 49.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "and he wrist sticks that go into adequately filtering for just their good"}
+{"v": 1, "type": "transcript", "ts": 53.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "good content of these web pages. The next stage here is language filtering."}
+{"v": 1, "type": "transcript", "ts": 57.0, "app": "com.microsoft.edgemac", "speaker": "them", "text": "is language filtering. So for example, find web filters."}
