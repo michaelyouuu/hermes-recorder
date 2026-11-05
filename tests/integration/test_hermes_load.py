@@ -1,7 +1,7 @@
 """Load the plugin through the real Hermes loader in a temporary HERMES_HOME.
 
 Run with Hermes's own interpreter:
-  ~/.hermes/tools/python-3.14.*/bin/python3 -I scripts/run_integration.py -q
+  ~/.hermes/tools/python-3.14.*/bin/python3 -I tests/integration/run_in_hermes.py -q
 Skipped when Hermes isn't importable (e.g. plain unit-test runs).
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-pytest.importorskip("hermes_constants", reason="needs Hermes (run scripts/run_integration.py)")
+pytest.importorskip("hermes_constants", reason="needs Hermes (run tests/integration/run_in_hermes.py)")
 
 # Only reached inside Hermes's runtime: point Hermes at a throwaway home before importing its loader.
 HOME = Path(tempfile.mkdtemp(prefix="hrec-home-"))

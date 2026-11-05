@@ -86,7 +86,8 @@ class Recorder:
     def __init__(self, data: Path | None = None, launcher=None):
         self.data_dir = Path(data) if data else data_dir()
         self.buffer = RingBuffer(max_minutes=int(config("buffer_minutes") or 30))
-        self.manager = HelperManager(self.buffer, self.data_dir, launcher or _dev_launcher() or AppLauncher())
+        self.manager = HelperManager(self.buffer, self.data_dir,
+                                     launcher or _dev_launcher() or AppLauncher(self.data_dir))
         self._autostart_tried = False
 
     # ------------------------------------------------------------------ actions

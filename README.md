@@ -40,7 +40,7 @@ macOS 14+ on Apple Silicon, Hermes `>=0.22.7`. Tested on macOS 26.6 (M4).
 uv venv --python ~/.hermes/tools/python-3.14.*/bin/python3 .venv
 uv pip install --python .venv/bin/python -r pyproject.toml --extra dev
 .venv/bin/python -m pytest                                              # unit tests
-~/.hermes/tools/python-3.14.*/bin/python3 -I scripts/run_integration.py -q   # real Hermes loader
+~/.hermes/tools/python-3.14.*/bin/python3 -I tests/integration/run_in_hermes.py -q   # real Hermes loader
 hermes plugins validate --install-deps .
 ```
 

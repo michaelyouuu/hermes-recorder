@@ -33,18 +33,63 @@ class LaunchError(RuntimeError):
 
 class Launcher(Protocol):
     def launch(self, socket_path: str, token: str, opts: dict[str, Any]) -> None: ...
-    def terminate(self) -> None: ...
+    def terminate(self, pid: int | None = None) -> None: ...
+
+
+def pid_path(pid: int) -> str | None:
+    """Executable path of ``pid`` (macOS libproc), or None."""
+    try:
+        import ctypes
+        lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+        buf = ctypes.create_string_buffer(4096)
+        n = lib.proc_pidpath(int(pid), buf, 4096)
+        return buf.value[:n].decode() if n > 0 else None
+    except Exception:
+        return None
 
 
 class AppLauncher:
-    """Launches the generated helper .app via ``open``. Built in M2."""
+    """Launches the generated ``Hermes Recorder Helper.app`` through LaunchServices (``open``)."""
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = Path(data_dir)
+
+    def _paths(self):
+        from .setup import Paths
+        return Paths(self.data_dir)
 
     def launch(self, socket_path: str, token: str, opts: dict[str, Any]) -> None:
-        raise LaunchError("The capture helper isn't installed yet. Run `hermes recorder setup` "
-                          "(available from M2) and grant its permissions.")
+        from . import setup
+        paths = self._paths()
+        ok, why = setup.build_is_current(paths, setup.host_python())
+        if not ok:
+            raise LaunchError(f"The capture helper isn't ready ({why}). Run `hermes recorder setup` in a terminal.")
+        paths.logs.mkdir(parents=True, exist_ok=True)
+        args = [str(Path(__file__).resolve().parent.parent / "helper" / "main.py"),
+                "--socket", socket_path, "--token", token, "--apps", ",".join(opts.get("apps") or []),
+                "--model", str(opts.get("whisper_model") or "base.en"),
+                "--mic", "1" if opts.get("capture_mic", True) else "0",
+                "--log", str(paths.logs / "helper.log")]
+        try:
+            p = subprocess.run(setup.open_argv(paths.app, setup.helper_env(paths), args),
+                               capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise LaunchError(f"could not launch the helper app: {e}") from e
+        if p.returncode != 0:
+            raise LaunchError(f"macOS refused to launch the helper app: {(p.stderr or p.stdout).strip()[:300]}")
 
-    def terminate(self) -> None:
-        return None
+    def terminate(self, pid: int | None = None) -> None:
+        """SIGTERM the helper, but only if ``pid`` really is our helper's executable (pid reuse guard)."""
+        if not pid:
+            return
+        from .setup import HELPER_EXE
+        exe = str(self._paths().app / "Contents" / "MacOS" / HELPER_EXE)
+        path = pid_path(pid)
+        if path and os.path.realpath(path) == os.path.realpath(exe):
+            try:
+                os.kill(pid, 15)
+            except OSError:
+                pass
 
 
 class SubprocessLauncher:
@@ -62,7 +107,7 @@ class SubprocessLauncher:
         except OSError as e:
             raise LaunchError(f"could not start helper: {e}") from e
 
-    def terminate(self) -> None:
+    def terminate(self, pid: int | None = None) -> None:
         p, self.proc = self.proc, None
         if p is None:
             return
@@ -225,7 +270,7 @@ class HelperManager:
         self._hello, self._hello_event = None, threading.Event()
         self.launcher.launch(self._sock_path, self._token, {**self._opts, "apps": self._apps})
         if not self._hello_event.wait(self.hello_timeout):
-            self.launcher.terminate()
+            self.launcher.terminate(None)
             raise LaunchError(f"The capture helper didn't connect within {self.hello_timeout:.0f} s. "
                               "Run `hermes recorder doctor` to check permissions.")
 
@@ -311,7 +356,7 @@ class HelperManager:
                         return
                     self._restarts += 1
                     try:
-                        self.launcher.terminate()
+                        self.launcher.terminate(self._helper_pid())
                         self._launch_and_wait()
                         if self._state == "paused":
                             self._send(proto.control("pause", time.time()))
@@ -329,6 +374,10 @@ class HelperManager:
             if self._state in ("running", "paused"):
                 self._error = "helper disconnected; restarting"
         threading.Thread(target=restart, name="hermes-recorder-restart", daemon=True).start()
+
+    def _helper_pid(self) -> int | None:
+        pid = self._hello.get("pid") if self._hello else None
+        return pid if isinstance(pid, int) and pid > 1 and pid != os.getpid() else None
 
     def _send(self, msg: proto.Message) -> None:
         with self._conn_lock:
@@ -353,7 +402,7 @@ class HelperManager:
         srv, self._listener = self._listener, None
         if srv is not None:
             srv.close()
-        self.launcher.terminate()
+        self.launcher.terminate(self._helper_pid())
         current = threading.current_thread()
         for t in self._threads:
             if t is not current:

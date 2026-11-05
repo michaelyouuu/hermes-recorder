@@ -503,7 +503,7 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Typed text recorded as deltas, never whole field values | S3: whole AXValue captured the entire note |
 | (pending) | Mask email addresses by default in typed values? | S3 recorded an email verbatim; decide in M3 |
 | 2026-11-05 | `requires_hermes: ">=0.22.7"`; CI pins Hermes `b200f5bc` | Only version tested; catalog rule 14 needs a truthful floor. Approved by Michael |
-| 2026-11-05 | Integration tests run inside Hermes's runtime via `scripts/run_integration.py` (bootstrap first, repo venv appended for pytest) | `hermes --run-module` runs Python isolated and has no pytest; pytest mis-parses absolute paths containing `[...]` (this repo's folder name) |
+| 2026-11-05 | Integration tests run inside Hermes's runtime via `tests/integration/run_in_hermes.py` (bootstrap first, repo venv appended for pytest) | `hermes --run-module` runs Python isolated and has no pytest; pytest mis-parses absolute paths containing `[...]` (this repo's folder name) |
 | 2026-11-05 | `screen_recall` returns the whole window when a query has no keyword hits, with a note | Paraphrased questions ("what time did we agree on") share no words with the answer ("3 PM Thursday") |
 | 2026-11-05 | Dev install = symlink `~/.hermes/plugins/hermes-recorder` -> repo; restart the gateway with `hermes gateway stop` (Hermes relaunches it via osascript), never `hermes gateway restart` from a terminal | `restart` from a terminal ran the gateway in that terminal's foreground, attributed to VS Code |
 | 2026-11-05 | `HERMES_RECORDER_DEV_FIXTURE` swaps in the fake helper (only fixtures under `tests/fixtures`) | Lets tools be exercised live before the real helper exists |

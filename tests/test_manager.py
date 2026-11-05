@@ -125,7 +125,7 @@ def test_crash_once_recovers(tmp_path):
 
 
 def test_app_launcher_stub_says_how_to_fix(tmp_path):
-    m = HelperManager(RingBuffer(30), tmp_path / "d", AppLauncher())
+    m = HelperManager(RingBuffer(30), tmp_path / "d", AppLauncher(tmp_path / "d"))
     with pytest.raises(LaunchError, match="hermes recorder setup"):
         m.start(["us.zoom.xos"])
     assert m.state == "error"

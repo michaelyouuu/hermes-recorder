@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests
         run: python -m pytest tests -q -p no:cacheprovider --ignore=tests/integration
       - name: Integration tests (real Hermes loader)
-        run: python scripts/run_integration.py "$GITHUB_WORKSPACE/hermes-agent" -q
+        run: python tests/integration/run_in_hermes.py "$GITHUB_WORKSPACE/hermes-agent" -q
       - name: Catalog validation
         run: hermes plugins validate --install-deps .
       - name: Plugin doctor

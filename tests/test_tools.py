@@ -97,7 +97,7 @@ def test_recall_masks_secrets(ctx, live):
 
 
 def test_recall_caps_output(ctx, tmp_path):
-    rec = runtime.Recorder(tmp_path / "d", AppLauncher())
+    rec = runtime.Recorder(tmp_path / "d", AppLauncher(tmp_path / "d"))
     runtime.reset_for_tests(rec)
     from hermes_recorder.buffer import Entry
     for i in range(400):
@@ -109,20 +109,20 @@ def test_recall_caps_output(ctx, tmp_path):
 
 
 def test_recall_when_off_explains(ctx, tmp_path):
-    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher()))
+    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher(tmp_path / "d")))
     out = json.loads(ctx.tools["screen_recall"]({}))
     assert out["lines"] == [] and "Capture is off" in out["note"]
 
 
 @pytest.mark.parametrize("args", [None, "x", {"minutes": "abc"}, {"minutes": -5}, {"speaker": "bob"}, {"app": 7}])
 def test_tools_never_raise_on_bad_args(ctx, tmp_path, args):
-    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher()))
+    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher(tmp_path / "d")))
     for name, handler in ctx.tools.items():
         json.loads(handler(args))  # always valid JSON
 
 
 def test_control_errors_are_json(ctx, tmp_path):
-    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher()))
+    runtime.reset_for_tests(runtime.Recorder(tmp_path / "d", AppLauncher(tmp_path / "d")))
     assert "hermes recorder setup" in json.loads(ctx.tools["recorder_control"]({"op": "start"}))["error"]
     assert "unknown op" in json.loads(ctx.tools["recorder_control"]({"op": "explode"}))["error"]
     assert "list" in json.loads(ctx.tools["recorder_control"]({"op": "start", "apps": "us.zoom.xos"}))["error"]
