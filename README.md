@@ -44,14 +44,16 @@ Then in any Hermes surface: `/recorder on com.google.Chrome` (any app's bundle i
 - the transcription model (`base.en`, ~280 MB on disk), downloaded once from Hugging Face.
 
 ## Global hotkey
-Start and stop capture from any app without asking Hermes:
-1. Open the **Shortcuts** app → **New Shortcut** → add **Run Shell Script** with
-   `~/.local/bin/hermes recorder toggle` (use the full path: `which hermes` shows it).
-2. In the shortcut's details (ⓘ), **Add Keyboard Shortcut**, for example ⌃⌥R.
-
-`toggle` reuses the apps you last captured (or the `apps` setting). You can also run
-`hermes recorder on com.google.Chrome` or `hermes recorder off` directly. Right after Hermes restarts, the
-recorder starts listening once Hermes has handled its first message or chat; until then, `toggle` says so.
+`hermes recorder setup` offers a **⌃⌥R** hotkey (or run `hermes recorder hotkey on`). Press it in any app to
+start or stop recording. You'll hear Tink when it starts, Pop when it stops, and Basso if something's wrong,
+and the macOS recording indicator shows while it records.
+- It records the apps you last chose. The very first time, it records **the app in front of you**.
+- It's a small login item that listens for that one key combination. It needs no permissions, captures
+  nothing itself, and `hermes recorder hotkey off` removes it. Change the key with the `hotkey` setting
+  (e.g. `cmd+shift+r`), then run `hermes recorder hotkey on`.
+- Right after Hermes restarts, the recorder starts listening once Hermes has handled its first message or
+  chat. Until then the hotkey plays Basso.
+- Prefer your own launcher? Bind `hermes recorder toggle` in Shortcuts or Raycast instead.
 
 ## Permissions
 | Permission | Needed for | How it's granted |
