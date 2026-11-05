@@ -507,6 +507,8 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | `screen_recall` returns the whole window when a query has no keyword hits, with a note | Paraphrased questions ("what time did we agree on") share no words with the answer ("3 PM Thursday") |
 | 2026-11-05 | Dev install = symlink `~/.hermes/plugins/hermes-recorder` -> repo; restart the gateway with `hermes gateway stop` (Hermes relaunches it via osascript), never `hermes gateway restart` from a terminal | `restart` from a terminal ran the gateway in that terminal's foreground, attributed to VS Code |
 | 2026-11-05 | `HERMES_RECORDER_DEV_FIXTURE` swaps in the fake helper (only fixtures under `tests/fixtures`) | Lets tools be exercised live before the real helper exists |
+| 2026-11-05 | CI installs Hermes with `uv sync --frozen` and checks out plugin and Hermes side by side | pip can't resolve Hermes's pins; a Hermes checkout inside the plugin dir made the security scan report "dangerous" (it scanned Hermes) |
+| 2026-11-05 | Repo `michaelyouuu/hermes-recorder` (private until the catalog PR); commits use the GitHub noreply email | Approved by Michael |
 | (open, M2) | Where the helper's Python deps live: Hermes's plugin env vs. its own venv | Gateway warns the deps aren't in Hermes's env; the helper .app needs them on its PYTHONPATH |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
