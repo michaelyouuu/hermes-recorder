@@ -509,7 +509,11 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | `HERMES_RECORDER_DEV_FIXTURE` swaps in the fake helper (only fixtures under `tests/fixtures`) | Lets tools be exercised live before the real helper exists |
 | 2026-11-05 | CI installs Hermes with `uv sync --frozen` and checks out plugin and Hermes side by side | pip can't resolve Hermes's pins; a Hermes checkout inside the plugin dir made the security scan report "dangerous" (it scanned Hermes) |
 | 2026-11-05 | Repo `michaelyouuu/hermes-recorder` (private until the catalog PR); commits use the GitHub noreply email | Approved by Michael |
-| (open, M2) | Where the helper's Python deps live: Hermes's plugin env vs. its own venv | Gateway warns the deps aren't in Hermes's env; the helper .app needs them on its PYTHONPATH |
+| 2026-11-05 | Helper deps live in their own venv under plugin-data (`python_runtime: external`), built by `hermes recorder setup` | Keeps heavy wheels out of Hermes's shared env and away from core pins; plugin side stays stdlib. Approved by Michael |
+| 2026-11-05 | Setup subprocesses run `python -I` with PYTHON*/PIP_* removed, then `pip check` | Under Hermes, pip saw Hermes's venv and skipped tqdm/packaging, so the helper couldn't load the model |
+| 2026-11-05 | Setup resets our bundle's TCC grants only when the app's CDHash changes | A stale entry from an older build shows "on" but doesn't apply and suppresses the prompt; resetting on an identical rebuild wiped valid grants (both seen live) |
+| 2026-11-05 | ScreenCaptureKit only lists apps that own a window | Background-only apps can't be captured (known issue); the e2e test player opens a 1x1 off-screen window |
+| 2026-11-05 | M2 ask mode verified live: Desktop HUD answered about a YouTube video in Edge via `screen_recall` (~10 ms per call); helper ~5% of one core, ~250 MB RSS | Observed by Michael and in logs |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---
