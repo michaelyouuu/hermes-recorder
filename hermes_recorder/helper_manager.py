@@ -159,7 +159,8 @@ class HelperManager:
         self.started_at: float | None = None
         self.helper_status: dict[str, Any] = {}   # latest periodic `status` from the helper
         self.on_status: Callable[[], None] | None = None  # e.g. refresh status.json
-        self.last_line_at: float | None = None
+        self.last_line_at: float | None = None        # any message, incl. heartbeats
+        self.last_transcript_at: float | None = None  # transcript lines only
 
     # ------------------------------------------------------------------ public API
     @property
@@ -247,7 +248,10 @@ class HelperManager:
                        "missing_apps": self.helper_status.get("missing_apps"),
                        "mic": self.helper_status.get("mic", hello.get("mic_supported")),
                        "rss_mb": self.helper_status.get("rss_mb"),
-                       "last_line_age_s": round(time.time() - self.last_line_at, 1) if self.last_line_at else None},
+                       "last_heartbeat_age_s": round(time.time() - self.last_line_at, 1) if self.last_line_at else None,
+                       "last_transcript_age_s": (round(time.time() - self.last_transcript_at, 1)
+                                                 if self.last_transcript_at else None),
+                       "streams": self.helper_status.get("streams")},
             "counters": dict(self.counters), "protocol_version": proto.PROTOCOL_VERSION,
         }
 
@@ -345,7 +349,7 @@ class HelperManager:
             return
         if msg.type == "status":
             self.helper_status = {k: msg.get(k) for k in ("capturing", "missing_apps", "paused", "mic",
-                                                          "cpu_s", "rss_mb", "counters")}
+                                                          "cpu_s", "rss_mb", "counters", "streams")}
             if self.on_status:
                 try:
                     self.on_status()
@@ -354,6 +358,8 @@ class HelperManager:
             return
         if msg.type in ("hello", "control"):
             return
+        if msg.type == "transcript":
+            self.last_transcript_at = time.time()
         clean = privacy.sanitize(msg, self._apps)
         if clean is None:
             self.counters["dropped_privacy"] += 1

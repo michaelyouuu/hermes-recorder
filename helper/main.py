@@ -47,6 +47,8 @@ class Helper:
         self.q: queue.Queue = queue.Queue(QUEUE_MAX)
         self.echo = EchoFilter()
         self.counters = {"windows": 0, "silent": 0, "dropped_backpressure": 0, "lines": 0, "filtered": 0}
+        # per-stream audio actually received from ScreenCaptureKit (1 = app audio, 2 = mic)
+        self.streams = {1: {"samples": 0, "peak": 0.0, "rate": None}, 2: {"samples": 0, "peak": 0.0, "rate": None}}
         self.capturing: list[str] = []
         self.capture = None
         self.fatal: str | None = None
@@ -78,6 +80,12 @@ class Helper:
     def on_audio(self, kind: int, x, rate: float) -> None:
         if self.paused or self.stop_ev.is_set():
             return
+        st = self.streams.get(kind)
+        if st is not None:
+            st["samples"] += len(x)
+            st["rate"] = rate
+            if len(x):
+                st["peak"] = max(st["peak"], float(abs(x).max()))
         w = self.windows.get(kind)
         if w is None or w.rate != rate:
             w = self.windows[kind] = dsp.Windower(rate)
@@ -190,9 +198,15 @@ class Helper:
     def status(self) -> None:
         r = resource.getrusage(resource.RUSAGE_SELF)
         missing = [a for a in self.apps if a not in self.capturing]
-        self.send("status", capturing=self.capturing, missing_apps=missing, paused=self.paused,
-                  mic=bool(self.capture and self.capture.mic), counters=self.counters,
-                  cpu_s=round(r.ru_utime + r.ru_stime, 1), rss_mb=round(r.ru_maxrss / 1048576, 1))
+        streams = {("app" if k == 1 else "mic"): {"seconds": round(v["samples"] / v["rate"], 1) if v["rate"] else 0.0,
+                                                  "peak": round(v["peak"], 4)} for k, v in self.streams.items()}
+        fields = dict(capturing=self.capturing, missing_apps=missing, paused=self.paused,
+                      mic=bool(self.capture and self.capture.mic), counters=dict(self.counters), streams=streams,
+                      cpu_s=round(r.ru_utime + r.ru_stime, 1), rss_mb=round(r.ru_maxrss / 1048576, 1))
+        self.send("status", **fields)
+        self.log.info("status %s", json.dumps(fields))
+        for v in self.streams.values():
+            v["peak"] = 0.0  # peak per status interval
 
     def run(self) -> int:
         from helper.capture_audio import mic_supported, pump
