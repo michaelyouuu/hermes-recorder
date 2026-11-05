@@ -501,7 +501,6 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Socket is the helper's only channel; manager verifies `hello` and tracks pid from it | `open` gives no pipes; one launch silently failed in S1c |
 | 2026-11-05 | `base.en` stays the default model | S2: 0.3 s per 5 s window, ≈3% of an M4, ~3% WER vs small.en |
 | 2026-11-05 | Typed text recorded as deltas, never whole field values | S3: whole AXValue captured the entire note |
-| (pending) | Mask email addresses by default in typed values? | S3 recorded an email verbatim; decide in M3 |
 | 2026-11-05 | `requires_hermes: ">=0.22.7"`; CI pins Hermes `b200f5bc` | Only version tested; catalog rule 14 needs a truthful floor. Approved by Michael |
 | 2026-11-05 | Integration tests run inside Hermes's runtime via `tests/integration/run_in_hermes.py` (bootstrap first, repo venv appended for pytest) | `hermes --run-module` runs Python isolated and has no pytest; pytest mis-parses absolute paths containing `[...]` (this repo's folder name) |
 | 2026-11-05 | `screen_recall` returns the whole window when a query has no keyword hits, with a note | Paraphrased questions ("what time did we agree on") share no words with the answer ("3 PM Thursday") |
@@ -514,6 +513,9 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Setup resets our bundle's TCC grants only when the app's CDHash changes | A stale entry from an older build shows "on" but doesn't apply and suppresses the prompt; resetting on an identical rebuild wiped valid grants (both seen live) |
 | 2026-11-05 | ScreenCaptureKit only lists apps that own a window | Background-only apps can't be captured (known issue); the e2e test player opens a 1x1 off-screen window |
 | 2026-11-05 | M2 ask mode verified live: Desktop HUD answered about a YouTube video in Edge via `screen_recall` (~10 ms per call); helper ~5% of one core, ~250 MB RSS | Observed by Michael and in logs |
+| 2026-11-05 | Built-in global hotkey (default ⌃⌥R, opt-in at setup): a LaunchAgent runs the helper app in hotkey-only mode using Carbon `RegisterEventHotKey` (no permissions) and toggles capture via an owner-only control socket in the gateway; first press records the frontmost app | Michael wanted it easy for users; Desktop plugin keybinds only fire while Desktop is focused. Verified live: start (Edge) and stop |
+| 2026-11-05 | Control socket starts on first gateway activity (`pre_gateway_dispatch` or a non-CLI turn), never in `register()` or CLI/TUI processes | No plugin startup hook; CLI sessions have their own buffer. Approved by Michael |
+| 2026-11-05 | Typed email addresses masked as `{EMAIL}` and turned into skill inputs | Approved by Michael |
 | 2026-11-05 | Zoom "them" audio left unverified; checked during demo rehearsal with a real two-person call (FaceTime fallback) | Live Zoom stream was all zeros, but probes ran concurrently with the helper and were invalid; Michael paused the investigation |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
