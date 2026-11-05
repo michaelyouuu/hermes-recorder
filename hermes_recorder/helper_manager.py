@@ -106,6 +106,7 @@ class HelperManager:
         self._token = ""
         self._hello: proto.Message | None = None
         self._hello_event = threading.Event()
+        self._conn_closed = threading.Event()  # set when the current helper connection ends
         self._threads: list[threading.Thread] = []
         self._stopping = threading.Event()
         self._restarts = 0
@@ -152,13 +153,17 @@ class HelperManager:
             self._state = "running"
             self.started_at = time.time()
 
-    def stop(self) -> None:
+    def stop(self, grace: float = 1.0) -> None:
         with self._lock:
             if self._state == "stopped" and self._listener is None:
                 return
             self._stopping.set()
             try:
+                had_conn = self._conn is not None
                 self._send(proto.control("stop", time.time()))
+                if had_conn:
+                    # let the helper shut its capture streams down and close the socket itself
+                    self._conn_closed.wait(grace)
             except Exception:
                 pass
             self._teardown()
@@ -252,6 +257,7 @@ class HelperManager:
             return
         with self._conn_lock:
             old, self._conn, self._hello = self._conn, conn, msg
+            self._conn_closed.clear()
         if old is not None:
             try:
                 old.close()
@@ -270,6 +276,7 @@ class HelperManager:
                 was_current = self._conn is conn
                 if was_current:
                     self._conn = None
+                    self._conn_closed.set()
             conn.close()
             if was_current and not self._stopping.is_set():
                 self._on_helper_lost()

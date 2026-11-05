@@ -24,4 +24,4 @@ import pytest  # noqa: E402
 # Relative path on purpose: pytest treats "[...]" in an argument as a parameter id, and this repo's
 # absolute path may contain brackets.
 os.chdir(ROOT)
-sys.exit(pytest.main(["-p", "no:cacheprovider", "tests/integration", *args]))
+sys.exit(pytest.main(["-o", "addopts=", "-p", "no:cacheprovider", "tests/integration", *args]))

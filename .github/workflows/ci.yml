@@ -26,7 +26,7 @@ jobs:
           uv pip install --python .venv/bin/python "pytest>=8,<9"
           echo "$GITHUB_WORKSPACE/hermes-agent/.venv/bin" >> "$GITHUB_PATH"
       - name: Unit tests
-        run: python -m pytest tests -q -p no:cacheprovider
+        run: python -m pytest tests -q -p no:cacheprovider --ignore=tests/integration
       - name: Integration tests (real Hermes loader)
         run: python scripts/run_integration.py "$GITHUB_WORKSPACE/hermes-agent" -q
       - name: Catalog validation
