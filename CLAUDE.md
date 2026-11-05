@@ -142,6 +142,15 @@ All present: ScreenCaptureKit (`capturesAudio`, `excludesCurrentProcessAudio`, `
 
 ### Target platform
 **macOS 14+ on Apple Silicon.** Declare `platforms: [macos]` and say so in the README.
+M0 spikes actually ran on **macOS 26.6.2, Apple M4, Hermes v0.22.7 (`b200f5bc60e3`)**, newer than the commit above. Re-run the plugin smoke checks in M1, and only claim the OS versions we test.
+
+### M0 spike findings (2026-11-05, details in `spikes/RESULTS.md`)
+- **Permission attribution:** the gateway runs as a one-off launchd job via `/usr/bin/osascript` (`hermes_cli/gateway_launchd_runtime.py`), and **Desktop chats run tools in that gateway** too. A plain child of the gateway is attributed to **osascript**, which is unusable (granting osascript Screen Recording or Input Monitoring would hand them to every AppleScript). A helper launched through LaunchServices as its own `.app` is responsible for itself no matter who launches it, and all four permissions granted to it persist across fresh launches.
+- **Audio:** SCK app audio arrives as the requested 16 kHz mono float32. **Mic (`captureMicrophone`) ignores the requested rate and arrives at 44.1 kHz**, so resample it. Per-app filtering works with browsers (Edge).
+- **Transcription on M4:** `base.en` int8 takes 0.30 s per 5 s window (RTF 0.063), about 32% of one core (≈3% of the machine), WER about 3% vs `small.en`. The helper's RSS is about 0.7 GB, almost all of it the model. The 1 s window overlap duplicates phrases (merge them); the first window can hallucinate a filler word (drop it).
+- **Events:** AX names native and Chromium controls well (Chromium needs `AXManualAccessibility = true` on the app). **macOS Secure Event Input withholds all key events from event taps while a password field is focused**, so password characters are unreachable. Div-heavy sites yield unlabeled `AXGroup`s. Reading a field's whole AXValue over-captures; record deltas. A single AX call can block for up to its 0.25 s messaging timeout.
+- Accessibility and Input Monitoring must be switched on in System Settings (no usable inline prompt). Deep links: `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` and `?Privacy_ListenEvent`.
+- `open --stdout ...` fails with LaunchServices `-10810`. One gateway-launched run silently produced no output, so the manager must verify startup.
 
 ---
 
@@ -149,7 +158,7 @@ All present: ScreenCaptureKit (`capturesAudio`, `excludesCurrentProcessAudio`, `
 
 ```
 +-------------------------------------------------------------------------------+
-| YOUR MAC: capture helper (separate process, started on demand by the plugin)  |
+| YOUR MAC: Hermes Recorder Helper.app (own TCC identity, launched via `open`)   |
 |  App audio (ScreenCaptureKit, per app) | Microphone (narration, own stream)   |
 |  UI events (Quartz event tap + Accessibility) | Snapshots (optional, off)     |
 |  Local transcription (faster-whisper + VAD)                                   |
@@ -177,17 +186,17 @@ All present: ScreenCaptureKit (`capturesAudio`, `excludesCurrentProcessAudio`, `
 
 ### Components and responsibilities
 
-**Capture helper (`helper/`)**: its own Python process so a crash or permission failure never takes the agent down.
-- `capture_audio.py`: ScreenCaptureKit stream with `capturesAudio=True`, `excludesCurrentProcessAudio=True`, filter including only allowed apps, 16 kHz mono. Microphone via `captureMicrophone` (macOS 15+) or `AVAudioEngine` (macOS 14) as a **separate stream** so transcript lines are labeled "me" vs "them".
-- `capture_events.py`: listen-only `CGEventTapCreate` for clicks and key-downs; resolve the element under the pointer or the focused element with Accessibility (`role`, `title`, `subrole`, app, window title). **If `subrole == AXSecureTextField`, never record characters**; emit `{SECRET}`. Coalesce key-downs into "typed value into field X" events.
+**Capture helper (`helper/`)**: its own Python process so a crash or permission failure never takes the agent down. It runs inside **`Hermes Recorder Helper.app`**, a bundle that `hermes recorder setup` generates locally: an Info.plist (bundle id `io.github.michaelyouuu.hermes-recorder.helper`, `LSUIElement`, mic/audio/screen usage strings) plus a copy of Hermes's own python interpreter as the executable, ad-hoc signed with `codesign -s -`. It lives under `plugin_data_dir`. Nothing compiled is committed (catalog rule 17). It is launched with `open -n --env PYTHONHOME=... --env PYTHONPATH=... -a <app> --args helper/main.py --socket <path> --token <t>` so macOS treats it as its own app; permissions are granted to "Hermes Recorder Helper" once. Rebuild it when the interpreter's hash changes (the user then re-grants), and have doctor detect that.
+- `capture_audio.py`: ScreenCaptureKit stream with `capturesAudio=True`, `excludesCurrentProcessAudio=True`, filter including only allowed apps, 16 kHz mono. Microphone via `captureMicrophone` (macOS 15+) or `AVAudioEngine` (macOS 14) as a **separate stream** so transcript lines are labeled "me" vs "them". Mic arrives at 44.1 kHz: resample to 16 kHz.
+- `capture_events.py`: listen-only `CGEventTapCreate` for clicks and key-downs; resolve the element under the pointer or the focused element with Accessibility (`role`, `title`, `subrole`, app, window title). **If `subrole == AXSecureTextField`, never record characters**; emit `{SECRET}` (macOS Secure Event Input already withholds those keys; this is the second guard). Coalesce key-downs into "typed into field X" events: single-line fields record their short final value, multi-line fields record only the **delta** (inserted text, deleted count) against a snapshot taken before the first key, never the whole field. The tap callback only enqueues; AX look-ups run on a worker thread. Climb from static text or groups to the actionable ancestor (link, button); set `AXManualAccessibility` on Chromium apps; fall back to DOM id or nearby text for unlabeled `AXGroup`s; record selection ranges (not contents).
 - `capture_frames.py` (optional, off by default): `SCScreenshotManager` snapshot on app switch or significant change, downscaled, RAM only.
-- `transcribe.py`: faster-whisper with VAD, 5 s windows with ~1 s overlap, model from config (`base.en` default).
-- `main.py`: connects to the plugin's socket, sends `hello` with versions and permission status, streams events, obeys `pause`, `resume`, `set_apps` and `stop` commands, and exits when the socket closes (no orphans).
+- `transcribe.py`: faster-whisper with VAD, 5 s windows with ~1 s overlap, model from config (`base.en` default, verified in S2). Merge overlapping words at window edges; drop very short first-window segments and low-confidence ones (`avg_logprob`, `no_speech_prob`).
+- `main.py`: connects to the plugin's socket, sends `hello` with versions and permission status, streams events, obeys `pause`, `resume`, `set_apps` and `stop` commands, and exits when the socket closes (no orphans). Launched via `open`, there is no stdin or stdout pipe: the socket is the only channel, and its `hello` carries the helper's pid.
 
 **Plugin (`hermes_recorder/` package at repo root)**
 - `__init__.py`: `register(ctx)` only registers. **No side effects in `register()`**: the validator runs it in isolation, and it may run in a plugin host. Start the helper lazily on `recorder_control start`, `/recorder on`, or the first tool call when `autostart` is true.
 - `buffer.py`: thread-safe ring buffer of typed events (`transcript`, `ui_event`, `app_switch`, `snapshot_ref`), trimmed by time; `slice(start, end)`; `search(query, minutes)`. Saved clips go to SQLite via `plugin_db`.
-- `helper_manager.py`: spawns the helper with `subprocess.Popen` (absolute interpreter path, no shell), owns the socket, restarts with backoff (max 3), stops it on `on_unload` and on `recorder_control stop`.
+- `helper_manager.py`: launches the helper app with `subprocess.run(["/usr/bin/open", "-n", ...])` (absolute paths, no shell, no `-W`, no `--stdout`), owns the socket, **waits for `hello` with a timeout** (reporting a clear error if it doesn't arrive), tracks the helper pid from `hello`, restarts with backoff (max 3), and stops it on `on_unload` and on `recorder_control stop` (control `stop`, then SIGTERM to the pid as a fallback).
 - `tools.py`: tool schemas and handlers (Section 6). Handlers return JSON strings and never raise.
 - `hooks.py`: `pre_llm_call` reads only an in-memory flag and counters (target under 5 ms; hooks are skipped after 30 s). Returns at most one line. `on_session_end` optionally writes a recap note for pinned clips.
 - `compiler.py`: buffer slice to normalized steps to `ctx.llm.complete_structured` with a JSON schema to `SKILL.md` text that passes the skill lint rules (Section 4).
@@ -353,7 +362,7 @@ Verified: a root `__init__.py` that imports from the `hermes_recorder/` subpacka
 | Accessibility | Element names for events | `AXIsProcessTrustedWithOptions` | Teach mode only |
 | Input Monitoring | Event tap | `CGPreflightListenEventAccess` / `CGRequestListenEventAccess` | Teach mode only |
 
-**Biggest unknown:** macOS grants these to the "responsible" app. When Hermes Desktop launches the gateway which launches our helper, the prompt may name Hermes Desktop; from a terminal it names Terminal or iTerm. Spike S1 settles this. Design `hermes recorder doctor` to print, per permission: granted or not, which app macOS will ask about, and the exact System Settings path to fix it.
+**Attribution (settled by S1):** macOS grants these to the "responsible" app. A plain child of the gateway counts as `/usr/bin/osascript` (how Hermes launches the gateway), or as Terminal or VS Code if the gateway was started in the foreground there. That is why the helper is its own `.app` launched through LaunchServices: every prompt and Settings entry says **"Hermes Recorder Helper"**, whoever started Hermes. Mic and Screen & System Audio prompt normally. Accessibility and Input Monitoring must be switched on in System Settings. `hermes recorder doctor` runs the preflight *inside the helper app* and prints, per permission, granted or not plus the exact Settings deep link (`x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`, `?Privacy_ListenEvent`, `?Privacy_ScreenCapture`, `?Privacy_Microphone`), and offers to reveal the app for the "+" button.
 
 Other rules:
 - Ask for teach-mode permissions only when teach mode is first enabled, not at install.
@@ -428,8 +437,8 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 
 - **Python:** target 3.11+ (Hermes runs 3.14). Type hints everywhere, `from __future__ import annotations`, dataclasses for events, `logging.getLogger(__name__)`, no prints in plugin code.
 - **Plugin code is a guest in Hermes:** no global side effects at import or in `register()`; no blocking on the gateway event loop; thread-safe state with locks; every hook and tool accepts `**kwargs`; nothing raises out of a handler.
-- **Helper process:** no shell, absolute interpreter path, parent-death detection (exit when the socket closes or stdin closes), bounded queues with drop-oldest under backpressure, structured JSON logs to `plugin_data_dir/logs/helper.log` with rotation.
-- **Performance budgets:** `pre_llm_call` under 5 ms; `screen_recall` under 50 ms for a 30-minute buffer; helper CPU under about 15% on an M-series Mac with `base.en` (confirm in S2); RAM buffer under 50 MB for 30 minutes of transcript and events.
+- **Helper process:** no shell, absolute interpreter path, parent-death detection (exit when the socket closes; there is no stdin when launched via `open`), bounded queues with drop-oldest under backpressure, structured JSON logs to `plugin_data_dir/logs/helper.log` with rotation.
+- **Performance budgets:** `pre_llm_call` under 5 ms; `screen_recall` under 50 ms for a 30-minute buffer; helper CPU under about 15% on an M-series Mac with `base.en` (S2: about 32% of one core, ≈3% of an M4; helper RSS ≈0.7 GB, mostly the model); RAM buffer under 50 MB for 30 minutes of transcript and events.
 - **Testing:** pytest with a fake helper that replays recorded JSONL fixtures (YouTube transcript, Zoom call, a teach demo). Unit-test buffer trimming and search, masking, normalization, SKILL.md rendering against the lint rules, tool JSON shapes, hook output length, unload cleanup. Integration test that installs the plugin into a temp `HERMES_HOME`, enables it, dispatches tools and invokes hooks (the smoke-test harness pattern: `hermes_cli.plugins.discover_plugins(force=True)`, `tools.registry.registry.dispatch(...)`, `hermes_cli.plugins.invoke_hook(...)`; `import model_tools` first when built-in tools like `skill_manage` are needed). macOS-only tests are marked and skipped on Linux CI.
 - **Validation:** `hermes plugins validate --install-deps .` and `hermes plugins doctor .` in CI; `HERMES_PLUGINS_DEBUG=1 hermes plugins list` when discovery acts up.
 - **Dependencies:** pinned ranges with upper bounds, a lockfile for CI, no new dependency without asking.
@@ -465,8 +474,10 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 
 | Risk | Mitigation |
 | --- | --- |
-| Permission attribution to the wrong app | Spike S1; doctor command with exact fix steps |
-| Transcription too slow or CPU heavy | Spike S2; smaller model, longer windows, mlx-whisper fallback |
+| Permission attribution to the wrong app | Settled in S1: helper runs as its own generated `.app`; doctor prints exact fix steps |
+| Ad-hoc grants reset when the interpreter changes (Hermes python update) | Rebuild the app on hash change; doctor detects lost grants and opens the right Settings pages |
+| Helper launch via `open` silently fails | Wait for `hello` with a timeout, retry with backoff, return a clear tool error |
+| Transcription too slow or CPU heavy | S2 passed with `base.en` on M4; `tiny.en` is the fallback, mlx-whisper not needed |
 | Accessibility names are poor in some apps | Fall back to window title + snapshot; keep demo apps known-good |
 | Replay unreliability (bounded by computer_use) | Short demo tasks; verify steps; approval points |
 | Plugin host isolation (no websockets, no CLI) | Poll HTTP; tools work in both modes; test with `plugins.isolation: host` |
@@ -486,6 +497,11 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Helper started lazily, never in `register()` | Validator runs `register()` in isolation; no event loop there |
 | 2026-11-05 | Inject a one-line note every turn while live, no HUD detection | No surface flag in hook kwargs; private module import would be flagged |
 | 2026-11-05 | Demo lead: use the default rule (teach mode leads if M4 passes by Nov 9 noon, else ask mode leads with teach as preview) | Confirmed by Michael at M0 kickoff |
+| 2026-11-05 | Helper runs as a locally generated, ad-hoc-signed `Hermes Recorder Helper.app` launched via LaunchServices, not a `Popen` child | S1b: gateway children are attributed to osascript; S1c: the helper app owns its own grants and they persist. Approved by Michael |
+| 2026-11-05 | Socket is the helper's only channel; manager verifies `hello` and tracks pid from it | `open` gives no pipes; one launch silently failed in S1c |
+| 2026-11-05 | `base.en` stays the default model | S2: 0.3 s per 5 s window, ≈3% of an M4, ~3% WER vs small.en |
+| 2026-11-05 | Typed text recorded as deltas, never whole field values | S3: whole AXValue captured the entire note |
+| (pending) | Mask email addresses by default in typed values? | S3 recorded an email verbatim; decide in M3 |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---
