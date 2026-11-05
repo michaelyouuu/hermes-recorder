@@ -122,6 +122,15 @@ def build_app(dest: Path, python: Path, bundle_id: str, name: str, exe: str,
     return dest
 
 
+def cdhash(app: Path, run: Run = subprocess.run) -> str | None:
+    """The app's code directory hash: what macOS keys an ad-hoc app's permissions to."""
+    p = run(["/usr/bin/codesign", "-dv", "--verbose=4", str(app)], check=False, capture_output=True, text=True)
+    for line in (p.stderr or "").splitlines() + (p.stdout or "").splitlines():
+        if line.startswith("CDHash="):
+            return line.split("=", 1)[1].strip()
+    return None
+
+
 def requirements() -> list[str]:
     """The helper's dependencies, from the plugin's pyproject.toml."""
     import tomllib
@@ -134,6 +143,18 @@ def read_build(paths: Paths) -> dict | None:
         return json.loads(paths.build_json.read_text())
     except (OSError, ValueError):
         return None
+
+
+def clean_env(**extra: str) -> dict[str, str]:
+    """Environment for setup subprocesses with Hermes's Python and pip settings removed.
+
+    Under Hermes, the parent's environment can make Hermes's own venv importable; pip then treats
+    packages like tqdm as already installed and leaves our venv incomplete (seen live).
+    """
+    env = {k: v for k, v in os.environ.items()
+           if not (k.startswith(("PYTHON", "PIP_", "UV_", "CONDA")) or k in ("VIRTUAL_ENV", "__PYVENV_LAUNCHER__"))}
+    env.update(extra)
+    return env
 
 
 def build_is_current(paths: Paths, python: Path) -> tuple[bool, str]:
@@ -177,23 +198,30 @@ def build_runtime(paths: Paths, python: Path | None = None, run: Run = subproces
     paths.runtime.mkdir(parents=True, exist_ok=True)
     if not (paths.venv / "bin" / "python").exists() or force:
         say("  creating venv")
-        run([str(python), "-m", "venv", "--clear", str(paths.venv)], check=True, capture_output=True, text=True)
+        run([str(python), "-I", "-m", "venv", "--clear", str(paths.venv)], check=True, capture_output=True,
+            text=True, env=clean_env())
     reqs = requirements()
+    vpy = str(paths.venv / "bin" / "python")
     say(f"  installing {len(reqs)} packages (faster-whisper, pyobjc…), this can take a minute")
-    run([str(paths.venv / "bin" / "python"), "-m", "pip", "install", "--disable-pip-version-check", "-q", *reqs],
-        check=True, capture_output=True, text=True)
+    run([vpy, "-I", "-m", "pip", "install", "--disable-pip-version-check", "-q", *reqs],
+        check=True, capture_output=True, text=True, env=clean_env())
+    run([vpy, "-I", "-m", "pip", "check"], check=True, capture_output=True, text=True, env=clean_env())
     say("  building and signing the helper app")
     build_app(paths.app, python, HELPER_BUNDLE_ID, HELPER_NAME, HELPER_EXE, USAGE, run=run)
-    # macOS keys ad-hoc grants to the exact build. A stale entry for our bundle id shows as "on" in
-    # System Settings but doesn't apply to the new build and suppresses the prompt, so clear ours only.
-    for service in TCC_SERVICES:
-        run(["/usr/bin/tccutil", "reset", service, HELPER_BUNDLE_ID], check=False, capture_output=True, text=True)
+    new_hash = cdhash(paths.app, run=run)
+    if not prior or prior.get("cdhash") != new_hash:
+        # macOS keys ad-hoc grants to the exact build (CDHash). A stale entry for our bundle id shows as
+        # "on" in System Settings but doesn't apply to a different build and suppresses the prompt, so
+        # clear ours only. An identical rebuild keeps its hash, and its grants stay valid.
+        for service in TCC_SERVICES:
+            run(["/usr/bin/tccutil", "reset", service, HELPER_BUNDLE_ID], check=False, capture_output=True,
+                text=True)
+        if prior:
+            say("  NOTE: the helper app changed, so macOS will ask for its permissions again.")
     build = {"build_version": BUILD_VERSION, "python": str(python), "python_sha256": sha256(python),
              "python_home": str(python_home(python)), "requirements": reqs, "app": str(paths.app),
-             "bundle_id": HELPER_BUNDLE_ID, "built_at": time.time()}
+             "bundle_id": HELPER_BUNDLE_ID, "cdhash": new_hash, "built_at": time.time()}
     paths.build_json.write_text(json.dumps(build, indent=2))
-    if prior and prior.get("python_sha256") != build["python_sha256"]:
-        say("  NOTE: Hermes's Python changed, so macOS will ask for the helper's permissions again.")
     return build
 
 
@@ -210,9 +238,10 @@ def download_model(paths: Paths, model: str, run: Run = subprocess.run, say: Cal
     paths.models.mkdir(parents=True, exist_ok=True)
     code = ("import sys; from faster_whisper import WhisperModel; "
             "WhisperModel(sys.argv[1], device='cpu', compute_type='int8')")
-    env = {**os.environ, "HF_HOME": str(paths.models)}
+    env = clean_env(HF_HOME=str(paths.models))
     env.pop("HF_HUB_OFFLINE", None)
-    run([str(paths.venv / "bin" / "python"), "-c", code, model], check=True, capture_output=True, text=True, env=env)
+    run([str(paths.venv / "bin" / "python"), "-I", "-c", code, model], check=True, capture_output=True, text=True,
+        env=env)
 
 
 def helper_env(paths: Paths) -> dict[str, str]:

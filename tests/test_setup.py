@@ -12,13 +12,16 @@ from hermes_recorder import doctor, helper_manager, runtime, setup
 
 
 class FakeRun:
-    """Records commands; simulates venv creation and codesign."""
+    """Records commands; simulates venv creation and codesign (CDHash = hash of the copied binary)."""
 
     def __init__(self):
         self.calls: list[list[str]] = []
 
     def __call__(self, argv, **kw):
         self.calls.append([str(a) for a in argv])
+        if argv[0] == "/usr/bin/codesign" and "-dv" in argv:
+            exe = Path(argv[-1]) / "Contents" / "MacOS" / setup.HELPER_EXE
+            return subprocess.CompletedProcess(argv, 0, "", f"CDHash={setup.sha256(exe)[:40]}\n")
         if "-m" in argv and "venv" in argv:
             venv = Path(argv[-1])
             (venv / "bin").mkdir(parents=True, exist_ok=True)
@@ -53,6 +56,8 @@ def test_build_runtime_creates_and_is_idempotent(tmp_path, fake_python):
     assert b["python_sha256"] == setup.sha256(fake_python) and b["requirements"] == setup.requirements()
     assert any(c[0] == "/usr/bin/codesign" and "--sign" in c and "-" in c for c in run.calls)
     assert any("pip" in c and "install" in c for c in run.calls)
+    assert any(c[-2:] == ["pip", "check"] for c in run.calls)
+    assert all("-I" in c for c in run.calls if "pip" in c or "venv" in c)
     resets = [c for c in run.calls if c[0] == "/usr/bin/tccutil"]
     assert {c[2] for c in resets} == set(setup.TCC_SERVICES) and all(c[3] == setup.HELPER_BUNDLE_ID for c in resets)
     assert setup.build_is_current(paths, fake_python) == (True, "up to date")
@@ -68,7 +73,17 @@ def test_python_change_triggers_rebuild_and_warning(tmp_path, fake_python):
     ok, why = setup.build_is_current(paths, fake_python)
     assert not ok and "Python changed" in why
     setup.build_runtime(paths, python=fake_python, run=run, say=said.append)
-    assert any("ask for the helper's permissions again" in s for s in said)
+    assert any("ask for its permissions again" in s for s in said)
+
+
+def test_identical_rebuild_keeps_permissions(tmp_path, fake_python):
+    paths, run = setup.Paths(tmp_path / "data"), FakeRun()
+    setup.build_runtime(paths, python=fake_python, run=run, say=lambda s: None)
+    first = [c for c in run.calls if c[0] == "/usr/bin/tccutil"]
+    run.calls.clear()
+    setup.build_runtime(paths, python=fake_python, run=run, say=lambda s: None, force=True)
+    assert [c for c in run.calls if c[0] == "/usr/bin/tccutil"] == []  # same CDHash: grants still valid
+    assert first and setup.read_build(paths)["cdhash"]
 
 
 def test_helper_env_and_open_argv(tmp_path, fake_python):
@@ -154,3 +169,12 @@ def test_model_download_skipped_when_present(tmp_path):
     run2 = FakeRun()
     setup.download_model(paths, "base.en", run=run2, say=said.append)
     assert run2.calls == [] and "already downloaded" in said[-1]
+
+
+def test_clean_env_drops_python_and_pip_settings(monkeypatch):
+    monkeypatch.setenv("PYTHONPATH", "/hermes/env/site-packages")
+    monkeypatch.setenv("PIP_NO_DEPS", "1")
+    monkeypatch.setenv("VIRTUAL_ENV", "/hermes/env")
+    env = setup.clean_env(HF_HOME="/m")
+    assert "PYTHONPATH" not in env and "PIP_NO_DEPS" not in env and "VIRTUAL_ENV" not in env
+    assert env["HF_HOME"] == "/m" and env.get("HOME")
