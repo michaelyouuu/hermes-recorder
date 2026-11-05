@@ -1,0 +1,18 @@
+name: hermes-recorder
+version: 0.1.0
+manifest_version: 2
+description: "Local screen and audio memory for Hermes: ask about any call or video, and teach Hermes a task by doing it once."
+author: Michael Mi
+license: MIT
+homepage: https://github.com/michaelyouuu/hermes-recorder
+requires_hermes: ">=0.22.7"
+platforms: [macos]
+tags: [voice, automation, desktop, recording, skills]
+config_schema:
+  apps: {type: list, default: [], label: "Apps to capture", description: "Bundle ids, e.g. com.google.Chrome, com.microsoft.edgemac, us.zoom.xos"}
+  buffer_minutes: {type: int, default: 30, label: "Buffer length (minutes)"}
+  whisper_model: {type: str, choices: [tiny.en, base.en, small.en], default: base.en, label: "Transcription model"}
+  capture_mic: {type: bool, default: true, label: "Capture my microphone (narration)"}
+  capture_events: {type: bool, default: false, label: "Capture clicks and typing (needed for teach mode)"}
+  capture_snapshots: {type: bool, default: false, label: "Capture low-rate snapshots (RAM only)"}
+  autostart: {type: bool, default: false, label: "Start capture on the first recorder tool call"}
