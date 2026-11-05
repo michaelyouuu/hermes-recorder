@@ -11,8 +11,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The plugin and Hermes are checked out side by side so validation only scans the plugin.
+    defaults:
+      run:
+        working-directory: plugin
     steps:
       - uses: actions/checkout@v5
+        with:
+          path: plugin
       - uses: actions/checkout@v5
         with:
           repository: NousResearch/hermes-agent
@@ -20,8 +26,8 @@ jobs:
           path: hermes-agent
       - uses: astral-sh/setup-uv@v6
       - name: Install Hermes from its lockfile (as Hermes does)
+        working-directory: hermes-agent
         run: |
-          cd hermes-agent
           uv sync --frozen --python 3.14
           uv pip install --python .venv/bin/python "pytest>=8,<9"
           echo "$GITHUB_WORKSPACE/hermes-agent/.venv/bin" >> "$GITHUB_PATH"
