@@ -195,3 +195,11 @@ Design changes for M1+ (need Michael's OK before CLAUDE.md is updated):
 Cleanup done: throwaway `s1-probe` plugin disabled and deleted. The gateway is running via osascript as Hermes
 normally runs it. Left for Michael: osascript's Microphone grant from S1(b) can be revoked in System Settings ->
 Privacy & Security -> Microphone.
+
+## S4 (M2 live finding): Zoom app audio arrives as digital silence — IN PROGRESS
+During a live Zoom call, the helper's per-app stream for `us.zoom.xos` delivered ~105 s of buffers with peak 0.0,
+while the mic stream carried speech (peak 0.46). All 13 lines were "me". The other side was only heard through speaker
+bleed into the mic. Edge (YouTube) app audio works. Hypothesis: Zoom renders call audio in a process that isn't
+the windowed `zoom.us` app (e.g. its `caphost` child, or a voice-processing path), so SCK's per-app filter
+excludes it. `spikes/s4_audio_processes.py` (CoreAudio process objects via ctypes) lists which PIDs are
+playing audio, to confirm during a call.
