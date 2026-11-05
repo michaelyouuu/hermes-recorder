@@ -147,7 +147,7 @@ messaging behave the same. A throwaway plugin `~/.hermes/plugins/s1-probe` ran t
 - Caution: running `hermes gateway restart` from a terminal ran the gateway in the foreground of that
   terminal (attributed to VS Code). `hermes gateway stop` then let Hermes relaunch it via osascript.
 
-## S1(c) Helper as its own generated .app — PASS for audio (events pending)
+## S1(c) Helper as its own generated .app — PASS
 `spikes/s1c_build_helper_app.sh` builds `Hermes Recorder Helper.app` locally: Info.plist with bundle id
 `io.github.michaelyouuu.hermes-recorder.helper`, `LSUIElement`, mic/audio/screen usage strings,
 `LSEnvironment PYTHONHOME`; the executable is a **copy of Hermes's own python3.14** (python-build-standalone,
@@ -165,7 +165,10 @@ only system dylibs); ad-hoc signed with `codesign -s -`. Launched with
 - The fourth run (from the gateway, `request false`) wrote no result, and the probe returned the previous
   line (a probe bug). Cause unknown. `open --stdout` reproducibly fails with LaunchServices `-10810`.
   **The helper manager must confirm the helper's `hello` over the socket, and retry or report a clear error.**
-- Accessibility and Input Monitoring: still false (pending: were they toggled for the helper?).
+- Accessibility and Input Monitoring don't prompt usefully: they must be switched on in System Settings
+  (the helper had to be added with "+" / found in the list). After that, a fresh launch (run 4, `final-check`)
+  had **all four granted**: app audio 3.1 s + mic captured, event tap saw 301 events. The doctor should open
+  `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility` and `?Privacy_ListenEvent`.
 - Risk: ad-hoc grants are tied to the code hash. Rebuilding the .app with the same python binary keeps the
   hash; a Hermes python update changes it, so the user re-grants. `hermes recorder doctor` must detect this.
 - Process model changes: no stdin/stdout pipes through `open`, so the Unix socket is the only channel
@@ -173,3 +176,22 @@ only system dylibs); ad-hoc signed with `codesign -s -`. Launched with
   the manager should launch without `-W` and track the pid from the `hello` message.
 - Catalog rule 17 (no compiled binaries in the repo) is respected: the bundle is generated at
   `hermes recorder setup` from the user's existing interpreter. Disclose it in README/PR.
+
+## M0 verdict: all three spikes PASS (S1 needed a design change)
+
+Design changes for M1+ (need Michael's OK before CLAUDE.md is updated):
+1. **The helper runs as a locally generated, ad-hoc-signed `Hermes Recorder Helper.app`**, launched through
+   LaunchServices (`open -n`), not as a plain `subprocess.Popen` child. It's built by `hermes recorder setup`
+   from Hermes's own python; nothing compiled is committed. Permissions are granted to "Hermes Recorder Helper"
+   once and persist. Disclose this in README/PR.
+2. The socket is the only channel; the helper exits when the socket closes; the manager tracks the pid
+   from `hello`, verifies startup, and retries.
+3. Mic audio is resampled from 44.1 kHz to 16 kHz in the helper.
+4. Transcription: `base.en` default; merge window overlaps; drop first-window/low-confidence fragments.
+5. Events: AX look-ups off the tap thread; typed deltas, not whole field values; secure fields are
+   unreachable anyway (Secure Event Input); add DOM-id/nearby-text fallbacks for unlabeled AXGroup; capture
+   selection ranges; decide on email masking.
+
+Cleanup done: throwaway `s1-probe` plugin disabled and deleted. The gateway is running via osascript as Hermes
+normally runs it. Left for Michael: osascript's Microphone grant from S1(b) can be revoked in System Settings ->
+Privacy & Security -> Microphone.
