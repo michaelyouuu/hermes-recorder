@@ -121,4 +121,13 @@ Gaps that need fixing in M3:
   for. Narration (mic, already working in S1/S2) and the "why" questions carry the intent.
 - Clicks that only refocus the field (steps 4, 8, 12) are noise; drop them in normalization.
 
+### Run 4: Edge re-check (WSJ sign-in), 60 s
+- Ancestor climb works: a click on link text now records `AXLink "Sign In"`.
+- Single-line field value is right: `AXTextField "Email or username"` -> "michaelmi" (no navigation side effects).
+- **New gap: div-heavy sites give unlabeled `AXGroup` hits** (4 of 9 Edge clicks on WSJ, incl. the
+  sign-in form's continue control). Fallbacks for M3: read `AXDOMIdentifier` / `AXDOMClassList`, the
+  nearest labeled descendant, or text near the point. Snapshot on click stays optional. Keep demo sites known-good.
+- Not covered by this run: the address-bar search fix (no query typed) and a secure field (the sign-in
+  flow didn't reach the password step). The password result from Run 3 stands.
+
 ## S1(b) — still PENDING (needs gateway restart, awaiting OK)
