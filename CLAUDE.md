@@ -137,7 +137,7 @@ All present: ScreenCaptureKit (`capturesAudio`, `excludesCurrentProcessAudio`, `
 ### Transcription
 - Core Hermes pins `faster-whisper==1.2.1` in its voice extras and **excludes Intel Macs** (no ctranslate2 wheels). Its own transcription functions are **not** documented plugin API; ship our own dependency instead of importing `tools.transcription_*`.
 - Wheels resolve on Apple Silicon for Python 3.13 and 3.14 (`ctranslate2 4.8.5`, `onnxruntime 1.31.1`, `av 19.0.2`; `onnxruntime` and `av` wheels target **macOS 14+**). `mlx-whisper 0.4.3` is available as an Apple Silicon fallback.
-- **Not yet measured:** transcription speed. Model weights come from Hugging Face, which was unreachable from the test sandbox. Spike S2 measures it on the Mac.
+- **Measured in S2 (M4):** `base.en` runs at RTF 0.063, about 3% of the machine (see M0 findings below). Model weights download from Hugging Face on first load (tiny.en 149 MB, base.en 282 MB, small.en 927 MB on disk).
 - Hermes's own interpreter is Python 3.14 (`.python-version`).
 
 ### Target platform
