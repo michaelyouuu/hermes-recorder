@@ -32,7 +32,7 @@ log = logging.getLogger("hermes_recorder_helper")
 HTML = Path(__file__).with_name("panel.html")
 W, H = 400, 460
 POLL_S = 2.0
-NOT_LISTENING = "Hermes is starting up. Open Hermes and send it any message, then try again."
+NOT_LISTENING = "Hermes is waking up. Send it a message, then try again."
 HERMES_APP_IDS = ("com.nousresearch.hermes.setup", "com.nousresearch.hermes")  # Hermes Desktop
 NOTES_TIMEOUT_S = 180
 

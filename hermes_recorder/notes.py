@@ -189,9 +189,8 @@ def render(note: dict[str, Any], *, started: float, ended: float, sources: list[
     actionable = [x for h, items in sections for x in [f"## {h}", "", *items, ""]]
     # meetings lead with what to do; study notes lead with the content
     out += actionable + content if kind == "meeting" else content + actionable
-    out += ["---", f"*Saved by hermes-recorder from {', '.join(sources) or 'recorded audio'} on "
-                   f"{when.strftime('%b %-d, %Y at %-I:%M %p')}. Generated from a transcript; check anything important.*",
-            ""]
+    out += ["---", f"*{', '.join(sources) or 'Recording'} · {when.strftime('%b %-d, %Y, %-I:%M %p')} · "
+                   "notes by Hermes from a transcript*", ""]
     return "\n".join(out)
 
 

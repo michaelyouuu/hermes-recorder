@@ -109,7 +109,7 @@
   <div class="banner" id="banner"></div>
   <section id="answers"></section>
   <form id="ask" autocomplete="off">
-    <input id="q" placeholder="Ask about the last 5 min…" spellcheck="false">
+    <input id="q" placeholder="Ask anything…" spellcheck="false">
     <div class="mins" id="mins">
       <button type="button" data-m="2">2m</button><button type="button" data-m="5" class="on">5m</button><button type="button" data-m="10">10m</button><button type="button" data-m="30">30m</button>
     </div>
@@ -117,7 +117,7 @@
   <footer>
     <button class="btn" id="pause">Pause</button>
     <button class="btn" id="stop"><i></i>Stop</button>
-    <button class="btn" id="notes" title="Write notes from this session to your notes folder" disabled>Save notes</button>
+    <button class="btn" id="notes" title="Save notes to your notes folder" disabled>Save notes</button>
     <span class="hint"><kbd>⌃⌥R</kbd> hide · <kbd>esc</kbd></span>
   </footer>
 <script>
@@ -128,7 +128,7 @@
     catch (e) { console.log('no bridge', op); }
   };
   const box = $('answers');
-  const EXAMPLES = ['What was just said?', 'Summarize the last few minutes', 'What times or numbers came up?'];
+  const EXAMPLES = ['What did I miss?', 'Quick recap', 'Any action items?'];
   let minutes = 5, state = 'stopped', startedAt = null, clockSkew = 0, nextId = 1;
   let sessionLines = 0, sessionMin = 0, saving = false, offered = false, lastSeen = Date.now();
   const pending = {}, history = [];   // history: last few {q, a} so follow-up questions work
@@ -142,11 +142,10 @@
     if (offered || saving || sessionLines < 3 || sessionMin < 1) return;
     offered = true;
     const card = el('div', 'note');
-    card.append(el('div', 'k', 'Recording stopped'),
-                el('div', 's', 'Save notes from this session (' + Math.round(sessionMin) + ' min)?'));
+    card.append(el('div', 'k', 'Stopped · ' + Math.round(sessionMin) + ' min'), el('div', 's', 'Want notes?'));
     const row = el('div', 'row');
     row.append(button('Save notes', 'primary', () => { card.remove(); saveNotes(); }),
-               button('No thanks', '', () => card.remove()));
+               button('Skip', '', () => card.remove()));
     card.append(row); box.appendChild(card); showEmpty(); scrollEnd();
   }
 
@@ -155,7 +154,7 @@
     saving = true; $('notes').disabled = true;
     const id = nextId++;
     const card = el('div', 'note');
-    const s = el('div', 's'); s.innerHTML = '<span class="spin"></span>Writing notes…';
+    const s = el('div', 's'); s.innerHTML = '<span class="spin"></span>Writing your notes…';
     card.append(el('div', 'k', 'Notes'), s); box.appendChild(card); showEmpty(); scrollEnd();
     pending[id] = { notes: card };
     post('notes', { id });
@@ -163,9 +162,9 @@
 
   function notesDone(card, r) {
     saving = false; card.textContent = '';
-    if (r.error) { card.classList.add('err'); card.append(el('div', 'k', 'Notes not saved'), el('div', 's', r.error)); }
+    if (r.error) { card.classList.add('err'); card.append(el('div', 'k', "Couldn't save notes"), el('div', 's', r.error)); }
     else {
-      card.append(el('div', 'k', r.kind === 'meeting' ? 'Meeting notes saved' : 'Notes saved'),
+      card.append(el('div', 'k', 'Notes saved'),
                   el('div', 't', r.title || 'Notes'), el('div', 's', r.summary || ''));
       const acts = r.action_items || [];
       if (acts.length) {
@@ -176,7 +175,7 @@
           if (who) li.append(el('span', 'who', ' — ' + who));
           ul.append(li);
         }
-        card.append(el('div', 'k', 'Action items'), ul);
+        card.append(el('div', 'k', 'To-dos'), ul);
       }
       const row = el('div', 'row');
       row.append(button('Show in Finder', '', () => post('reveal', { path: r.path })));
@@ -200,7 +199,7 @@
     if (old) old.remove();
     const e = document.createElement('div'); e.className = 'empty'; e.dataset.kind = kind;
     if (kind === 'rec') {
-      e.innerHTML = '<b>Ask about what you just heard</b>';
+      e.innerHTML = '<b>Ask anything</b>';
       const ex = document.createElement('div'); ex.className = 'ex';
       for (const q of EXAMPLES) {
         const b = document.createElement('button'); b.type = 'button'; b.textContent = q;
@@ -209,7 +208,7 @@
       }
       e.appendChild(ex);
     } else {
-      e.innerHTML = '<b>Not recording</b>Press Start, or ⌃⌥R over the app you want to capture.';
+      e.innerHTML = '<b>Not recording</b>Hit Start, or ⌃⌥R in any app.';
     }
     box.appendChild(e);
   }
@@ -251,7 +250,7 @@
     const m = e.target.dataset && e.target.dataset.m; if (!m) return;
     minutes = +m;
     for (const b of $('mins').children) b.classList.toggle('on', b === e.target);
-    $('q').placeholder = 'Ask about the last ' + m + ' min…';
+    $('q').placeholder = 'Ask anything · last ' + m + ' min';
     $('q').focus();
   });
 
@@ -285,13 +284,12 @@
     for (const old of box.querySelectorAll('.note.call')) old.remove();
     const card = el('div', 'note call'), row = el('div', 'row');
     if (kind === 'start') {
-      card.append(el('div', 'k', 'Call detected'),
-                  el('div', 's', info.app + ' call. Record it? The audio stays on your Mac; you can ask about it and save meeting notes.'));
-      row.append(button('Record call', 'primary', () => { card.remove(); post('recordCall', { bid: info.bid }); }),
+      card.append(el('div', 'k', info.app + ' call'), el('div', 's', 'Record it? Everything stays on your Mac.'));
+      row.append(button('Record', 'primary', () => { card.remove(); post('recordCall', { bid: info.bid }); }),
                  button('Not now', '', () => card.remove()));
     } else {
-      card.append(el('div', 'k', 'Call ended'), el('div', 's', 'Stop recording ' + info.app + ' and save meeting notes?'));
-      row.append(button('Stop & save notes', 'primary', () => { card.remove(); offered = true; post('stop'); saveNotes(); }),
+      card.append(el('div', 'k', 'Call ended'), el('div', 's', 'Save notes from your ' + info.app + ' call?'));
+      row.append(button('Save notes', 'primary', () => { card.remove(); offered = true; post('stop'); saveNotes(); }),
                  button('Keep recording', '', () => card.remove()));
     }
     card.append(row); box.appendChild(card); showEmpty(); scrollEnd();
