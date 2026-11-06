@@ -19,8 +19,9 @@ log = logging.getLogger(__name__)
 PLUGIN_NAME = "hermes-recorder"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS: dict[str, Any] = {
-    "apps": [], "buffer_minutes": 30, "whisper_model": "base.en", "capture_mic": True,
+    "apps": [], "buffer_minutes": 90, "whisper_model": "base.en", "capture_mic": True,
     "capture_events": False, "capture_snapshots": False, "autostart": False, "hotkey": "ctrl+opt+r",
+    "notes_dir": "~/Documents/Hermes Notes",
 }
 APP_NAMES = {
     "com.google.Chrome": "Google Chrome", "com.microsoft.edgemac": "Microsoft Edge", "com.apple.Safari": "Safari",
@@ -76,6 +77,11 @@ def bind_context(ctx) -> None:
     _ctx = ctx
 
 
+def llm() -> Any:
+    """The plugin's ``ctx.llm`` (the user's Hermes model), or None."""
+    return getattr(_ctx, "llm", None)
+
+
 def config(key: str) -> Any:
     default = DEFAULTS.get(key)
     if _ctx is None:
@@ -113,7 +119,7 @@ def _dev_launcher() -> SubprocessLauncher | None:
 class Recorder:
     def __init__(self, data: Path | None = None, launcher=None):
         self.data_dir = Path(data) if data else data_dir()
-        self.buffer = RingBuffer(max_minutes=int(config("buffer_minutes") or 30))
+        self.buffer = RingBuffer(max_minutes=int(config("buffer_minutes") or 90))
         self.manager = HelperManager(self.buffer, self.data_dir,
                                      launcher or _dev_launcher() or AppLauncher(self.data_dir))
         self._autostart_tried = False
@@ -156,8 +162,10 @@ class Recorder:
             self.start(apps)
 
     def forget(self) -> None:
-        """Clear the live buffer (saved clips arrive with SQLite storage later)."""
+        """Clear the live buffer and the summaries made from it (saved notes are files the user owns)."""
+        from . import digest
         self.buffer.clear()
+        digest.clear_cache()
         self.write_status()
 
     def maybe_autostart(self) -> None:
@@ -286,7 +294,7 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             return {**_brief(rec), **_feed(rec, args.get("since"))}
         elif op == "ask":
             from .ask import answer
-            return answer(str(args.get("question") or ""), args.get("minutes") or 5, rec=rec)
+            return answer(str(args.get("question") or ""), args.get("minutes") or 5, rec=rec, history=args.get("history"))
     except LaunchError as e:
         return {**_brief(rec), "error": str(e), "started": False}
     out = _brief(rec)

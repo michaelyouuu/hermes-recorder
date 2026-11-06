@@ -11,7 +11,7 @@ from . import runtime
 from .helper_manager import LaunchError
 
 log = logging.getLogger(__name__)
-RECALL_CHAR_CAP = 6000
+RECALL_CHAR_CAP = 12000  # about 12 min of speech verbatim; longer windows are digested
 
 
 def _safe(fn: Callable[..., dict]) -> Callable[..., str]:
@@ -72,10 +72,17 @@ def screen_recall(args: dict) -> dict:
         # so return the whole window rather than an empty answer.
         entries = rec.buffer.search("", minutes, app=app, speaker=speaker)
         fallback = bool(entries)
-    lines, truncated = recall_lines(entries)
-    out: dict[str, Any] = {"lines": lines, "truncated": truncated, "minutes": round(minutes, 1)}
+    from . import digest
+    lines, digest_note = digest.build(entries, RECALL_CHAR_CAP, time.time(), llm=runtime.llm(),
+                                      runner=digest.current_context_runner())
+    out: dict[str, Any] = {"lines": lines, "truncated": digest_note is not None, "minutes": round(minutes, 1)}
+    notes = []
     if fallback:
-        out["note"] = f"No line contained the words in '{query}', so these are all lines from the last {minutes:g} min."
+        notes.append(f"No line contained the words in '{query}', so these are all lines from the last {minutes:g} min.")
+    if digest_note:
+        notes.append(digest_note)
+    if notes:
+        out["note"] = " ".join(notes)
     if not lines:
         state = rec.manager.state
         if state in ("stopped", "error"):

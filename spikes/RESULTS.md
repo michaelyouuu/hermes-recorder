@@ -251,3 +251,13 @@ stream, through the helper's chunking, filters and buffer merge, and reports WER
 - With noise (σ 0.01 / 0.03): old 0.237 / 0.350, new 0.181 / 0.248. Disabling VAD helped only at heavy noise
   (0.205) and risks hallucinations on music, so VAD stays on. Prompting with earlier text didn't help.
 - small.en with the new chunks: 0.071 clean / 0.158 noisy at RTF 0.21 (3× base.en), so it stays an option.
+
+## S8: notes folder and gateway readiness (2026-11-06)
+- **Notes folder — PASS.** `spikes/s8_notes_dir.py` runs a writer the way Hermes runs its gateway (a one-off launchd
+  job through `/usr/bin/osascript`, via Hermes's own `launchd_program_arguments`). Creating and writing
+  `~/Documents/Hermes Notes` and `~/Hermes Notes` both succeeded instantly with no prompt on this Mac, so
+  `~/Documents/Hermes Notes` stays the default. A Mac that does gate it would fail with EPERM; Save notes then falls
+  back to `~/Hermes Notes` and says so.
+- **Gateway readiness — no hook.** `on_session_start` fires from agent init (a turn), and `gateway_platform_event`
+  only for adapter events (reactions and the like). Nothing fires when the gateway starts, so the control socket
+  still starts on the first message. The panel now explains this and offers to open Hermes.
