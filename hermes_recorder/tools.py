@@ -143,4 +143,6 @@ def recorder_notes(args: dict) -> dict:
 
 @_safe
 def draft_skill(args: dict) -> dict:
-    return {"error": "Teach mode isn't available yet in this version of hermes-recorder (coming in M3)."}
+    from . import digest, teach
+    hint = args.get("goal_hint")
+    return teach.draft(args.get("minutes") or 5, str(hint) if hint else None, runner=digest.current_context_runner())

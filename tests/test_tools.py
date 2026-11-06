@@ -37,6 +37,10 @@ class FakeCtx:
     def on_unload(self, cb):
         self.unload.append(cb)
 
+    def register_skill(self, name, path, description="", frontmatter=None):
+        assert Path(path).exists(), path
+        self.skills = {**getattr(self, "skills", {}), name: Path(path)}
+
 
 def fake_launcher(fixture, *extra):
     return SubprocessLauncher(lambda s, t, o: [sys.executable, FAKE, "--socket", s, "--token", t,
@@ -126,7 +130,7 @@ def test_control_errors_are_json(ctx, tmp_path):
     assert "hermes recorder setup" in json.loads(ctx.tools["recorder_control"]({"op": "start"}))["error"]
     assert "unknown op" in json.loads(ctx.tools["recorder_control"]({"op": "explode"}))["error"]
     assert "list" in json.loads(ctx.tools["recorder_control"]({"op": "start", "apps": "us.zoom.xos"}))["error"]
-    assert "M3" in json.loads(ctx.tools["recorder_draft_skill"]({}))["error"]
+    assert "Teach mode is off" in json.loads(ctx.tools["recorder_draft_skill"]({}))["error"]
 
 
 def test_status_shape(ctx, live):
@@ -164,7 +168,7 @@ def test_commands(ctx, live):
     assert "cleared" in ctx.commands["recorder"]("forget") and live.buffer.recent(30) == []
     assert "stopped" in ctx.commands["recorder"]("off")
     assert "Usage" in ctx.commands["recorder"]("dance")
-    assert "M3" in ctx.commands["teach"]("5") and "Usage" in ctx.commands["teach"]("abc")
+    assert "Teach mode is off" in ctx.commands["teach"]("5") and "Usage" in ctx.commands["teach"]("abc")
 
 
 def test_unload_stops_helper_and_threads(ctx, live):

@@ -27,6 +27,7 @@ _MASKS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:sk|pk|rk|ghp|gho|ghs|xox[abprs]|AKIA)[-_A-Za-z0-9]{12,}\b"), "{API_KEY}"),
     (re.compile(r"\b[A-Za-z0-9_\-]{32,}\b"), "{TOKEN}"),
     (re.compile(r"^\s*\d{4,8}\s*$"), "{CODE}"),
+    (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), "{EMAIL}"),
 ]
 
 

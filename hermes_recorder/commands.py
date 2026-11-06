@@ -70,4 +70,6 @@ def teach(raw_args: str = "", **kwargs) -> str:
     result = json.loads(tools.draft_skill({"minutes": minutes}))
     if "error" in result:
         return f"Teach: {result['error']}"
-    return result.get("draft_md", "")
+    qs = "\n".join(f"- {q}" for q in result.get("questions") or [])
+    return (result.get("draft_md", "") + (f"\n\nQuestions before saving:\n{qs}" if qs else "")
+            + "\n\nAsk Hermes to save it (it uses skill_manage) once you're happy with it.")

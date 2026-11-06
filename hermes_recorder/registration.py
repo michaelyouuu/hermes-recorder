@@ -24,4 +24,6 @@ def register_all(ctx) -> None:
     ctx.register_command("teach", commands.teach, description="Draft a skill from the last N minutes",
                          args_hint="[minutes]")
     ctx.register_cli_command("recorder", "Recorder setup and diagnostics", cli.setup_parser, cli.run)
+    ctx.register_skill("replay-recorded", runtime.PLUGIN_ROOT / "skills" / "replay-recorded" / "SKILL.md",
+                       description="Run a skill recorded with hermes-recorder; follow up on a meeting")
     ctx.on_unload(runtime.shutdown)

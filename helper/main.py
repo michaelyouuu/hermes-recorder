@@ -56,6 +56,7 @@ class Helper:
         self.audio_path: dict[str, str] = {}  # bundle id -> "tap" | "sck"
         self.capture = None
         self.taps = None
+        self.events = None  # helper.capture_events.EventCapture when teach mode is on
         self.fatal: str | None = None
 
     # ------------------------------------------------------------------ socket
@@ -201,13 +202,29 @@ class Helper:
             self.send("error", message=self.fatal)
             return
         tapped = self.taps.start(tap_apps)
+        if getattr(self.a, "events", False) and self.events is None:
+            try:
+                from helper.capture_events import EventCapture
+                ev = EventCapture(self.send_event)
+                self.events = ev if ev.start() else None
+            except Exception as e:
+                self.log.warning("ui events unavailable: %s", e)
         self.audio_path = {**{b: "tap" for b in tap_apps}, **{b: "sck" for b in sck_apps}}
         self.capturing = [b for b in self.apps if b in tapped or b in self.sck_capturing]
         self.windows.clear()
         self.first.clear()
         self.log.info("capturing %s (mic=%s, audio_path=%s)", self.capturing, self.capture.mic, self.audio_path)
 
+    def send_event(self, mtype: str, **fields) -> None:
+        """UI events only for the apps being captured (plus the Dock, for "opened X"); never anything else."""
+        app = fields.get("app")
+        if app in self.apps or (mtype == "ui_event" and app == "com.apple.dock"):
+            self.send(mtype, **fields)
+
     def stop_capture(self) -> None:
+        if self.events is not None:
+            self.events.stop()
+            self.events = None
         if self.capture:
             self.capture.stop()  # turns the macOS recording indicator off
         if self.taps:

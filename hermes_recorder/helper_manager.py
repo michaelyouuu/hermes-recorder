@@ -70,6 +70,8 @@ class AppLauncher:
                 "--model", str(opts.get("whisper_model") or "base.en"),
                 "--mic", "1" if opts.get("capture_mic", True) else "0",
                 "--log", str(paths.logs / "helper.log")]
+        if opts.get("capture_events"):
+            args.append("--events")  # teach mode: clicks and typing (needs Accessibility + Input Monitoring)
         try:
             p = subprocess.run(setup.open_argv(paths.app, setup.helper_env(paths), args),
                                capture_output=True, text=True, timeout=15)
