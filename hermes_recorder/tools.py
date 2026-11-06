@@ -127,5 +127,20 @@ def recorder_control(args: dict) -> dict:
 
 
 @_safe
+def save_notes(args: dict) -> dict:
+    from . import digest, notes
+    hint = args.get("title_hint")
+    return notes.save(args.get("minutes"), str(hint) if hint else None, runner=digest.current_context_runner())
+
+
+@_safe
+def recorder_notes(args: dict) -> dict:
+    from . import notes
+    if args.get("path"):
+        return notes.read(str(args["path"]))
+    return notes.search(str(args.get("query") or ""), args.get("days") or 30)
+
+
+@_safe
 def draft_skill(args: dict) -> dict:
     return {"error": "Teach mode isn't available yet in this version of hermes-recorder (coming in M3)."}

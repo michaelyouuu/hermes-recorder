@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 MAX_REQUEST = 16 * 1024
 MAX_REPLY = 1024 * 1024  # a panel feed carries up to FEED_MAX transcript lines
-OPS = ("toggle", "on", "off", "status", "summon", "feed", "ask", "pause", "resume")
+OPS = ("toggle", "on", "off", "status", "summon", "feed", "ask", "pause", "resume", "notes")
 
 
 def paths(data_dir: Path) -> tuple[Path, Path]:

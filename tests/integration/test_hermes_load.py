@@ -51,7 +51,7 @@ def _call(registry, name, args):
 
 def test_tools_registered(loaded):
     _, registry = loaded
-    for name in ("screen_recall", "recorder_status", "recorder_control", "recorder_draft_skill"):
+    for name in ("screen_recall", "recorder_status", "recorder_control", "recorder_draft_skill", "recorder_save_notes", "recorder_notes"):
         assert registry.get_entry(name) is not None, name
 
 

@@ -50,6 +50,42 @@ CONTROL_SCHEMA = {
     },
 }
 
+SAVE_NOTES_SCHEMA = {
+    "name": "recorder_save_notes",
+    "description": (
+        "Write markdown notes (summary, key points, details, action items, open questions) from what the user "
+        "just watched, heard or discussed, and save them to their notes folder so they can come back to them. Use "
+        "when the user asks to save, keep, write up or take notes on a video, lecture, call or podcast. Defaults to "
+        "the current or last recording session. Saves derived notes only, never the raw transcript. Tell the user "
+        "the title and where the file is."),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "minutes": {"type": "number", "description": "How far back to cover (default: the whole session)."},
+            "title_hint": {"type": "string", "description": "Optional: what the user calls it, e.g. 'CS229 lecture 3'."},
+        },
+        "required": [],
+    },
+}
+
+NOTES_SCHEMA = {
+    "name": "recorder_notes",
+    "description": (
+        "Search and read notes the user saved earlier from videos, lectures, calls and podcasts. Use when the user "
+        "asks what they learned, watched or discussed before ('what did I learn about attention yesterday?', 'what "
+        "did we decide on last week's call?'), or asks about their saved notes. Returns matching notes newest first "
+        "with summaries; the full text comes back when one note matches or when 'path' is given."),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Optional topic words, e.g. 'learning rate'. Empty lists recent notes."},
+            "days": {"type": "number", "description": "How many days back to search (default 30)."},
+            "path": {"type": "string", "description": "Read one note in full (a path from an earlier result)."},
+        },
+        "required": [],
+    },
+}
+
 DRAFT_SCHEMA = {
     "name": "recorder_draft_skill",
     "description": (

@@ -124,6 +124,7 @@ class Recorder:
                                      launcher or _dev_launcher() or AppLauncher(self.data_dir))
         self._autostart_tried = False
         self.started_at: float | None = None  # when capture last started (the panel shows elapsed time)
+        self.last_started_at: float | None = None  # survives stop, so Save notes can cover the last session
         self.manager.on_status = self.write_status  # keep `hermes recorder status` current (every ~15 s)
 
     # ------------------------------------------------------------------ actions
@@ -132,7 +133,7 @@ class Recorder:
         opts = {k: config(k) for k in ("whisper_model", "capture_mic", "capture_events", "capture_snapshots")}
         try:
             self.manager.start(apps, opts)
-            self.started_at = time.time()
+            self.started_at = self.last_started_at = time.time()
             remember_apps(self.manager.apps)
         finally:
             self.write_status()
@@ -292,6 +293,9 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             rec.resume()
         elif op == "feed":
             return {**_brief(rec), **_feed(rec, args.get("since"))}
+        elif op == "notes":
+            from .notes import save
+            return save(args.get("minutes"), args.get("title_hint"), rec=rec)
         elif op == "ask":
             from .ask import answer
             return answer(str(args.get("question") or ""), args.get("minutes") or 5, rec=rec, history=args.get("history"))
@@ -317,8 +321,12 @@ def _feed(rec: Recorder, since: Any) -> dict[str, Any]:
 
 def _brief(rec: Recorder) -> dict[str, Any]:
     st = rec.status()
+    last = rec.last_started_at
+    session = [e for e in rec.buffer.slice(last, time.time() + 1, ("transcript",))] if last else []
     return {"state": st["state"], "apps": [a["name"] for a in st["apps"]], "error": st["error"],
             "minutes_available": st["buffer"]["minutes_available"], "started_at": rec.started_at,
+            "session_lines": len(session),
+            "session_minutes": round((session[-1].ts - session[0].ts) / 60, 1) if session else 0,
             "now": time.time()}
 
 

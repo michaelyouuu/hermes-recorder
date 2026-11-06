@@ -9,8 +9,8 @@ from .helper_manager import LaunchError
 
 log = logging.getLogger(__name__)
 
-RECORDER_HELP = ("Usage: /recorder on [bundle ids…] | off | pause | resume | status | forget\n"
-                 "Example: /recorder on com.microsoft.edgemac us.zoom.xos")
+RECORDER_HELP = ("Usage: /recorder on [apps…] | off | pause | resume | status | notes [minutes] | forget\n"
+                 "Examples: /recorder on zoom edge · /recorder notes 20")
 
 
 def _status_text(rec: runtime.Recorder) -> str:
@@ -39,6 +39,16 @@ def recorder(raw_args: str = "", **kwargs) -> str:
             rec.pause()
         elif sub == "resume":
             rec.resume()
+        elif sub == "notes":
+            from . import notes
+            try:
+                minutes = float(parts[1]) if len(parts) > 1 else None
+            except ValueError:
+                return RECORDER_HELP
+            r = notes.save(minutes, " ".join(parts[2:]) or None)
+            if "error" in r:
+                return f"Notes: {r['error']}"
+            return f"Saved notes: {r['title']}\n{r['path']}\n\n{r['summary']}" + (f"\n({r['note']})" if r.get("note") else "")
         elif sub == "forget":
             rec.forget()
             return "Recorder buffer cleared.\n" + _status_text(rec)
