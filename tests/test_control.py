@@ -128,3 +128,52 @@ def test_resolve_apps_friendly_names():
     assert resolve_apps(["FaceTime", "zoom", "Microsoft Edge", "com.example.App", "facetime"]) == [
         "com.apple.FaceTime", "us.zoom.xos", "com.microsoft.edgemac", "com.example.App"]
     assert resolve_apps(["phone", "WhatsApp"]) == ["com.apple.mobilephone", "net.whatsapp.WhatsApp"]
+
+
+def test_panel_summon_feed_pause_and_ask(gateway, short_dir):
+    c, rec = gateway
+    c.hooks["pre_gateway_dispatch"]()
+    r = control.request(short_dir, "summon", fallback_apps=["us.zoom.xos"])
+    assert r["state"] == "running" and r["started"] is True
+    assert control.request(short_dir, "summon")["started"] is False  # already on: just show the panel
+    assert wait_for(lambda: rec.buffer.stats()["counts"].get("transcript", 0) >= 2)
+    feed = control.request(short_dir, "feed")
+    assert feed["state"] == "running" and feed["started_at"] and len(feed["lines"]) >= 2
+    first = feed["lines"][0]
+    assert set(first) == {"ts", "speaker", "app", "text"} and first["app"] == "Zoom"
+    later = control.request(short_dir, "feed", args={"since": feed["now"] + 3600})
+    assert later["lines"] == []
+    assert control.request(short_dir, "pause")["state"] == "paused"
+    assert control.request(short_dir, "resume")["state"] == "running"
+
+    seen = {}
+
+    class LLM:
+        def complete(self, messages, **kw):
+            seen.update(messages=messages, kw=kw)
+            return type("R", (), {"text": " 3 PM Thursday "})()
+
+    c.llm = LLM()
+    a = control.request(short_dir, "ask", args={"question": "what time?", "minutes": 5})
+    assert a["answer"] == "3 PM Thursday" and a["lines"] >= 2
+    assert "Question: what time?" in seen["messages"][1]["content"]
+    assert "(Zoom):" in seen["messages"][1]["content"]
+    assert seen["kw"]["purpose"] == "hermes-recorder: panel ask"
+    assert "error" in control.request(short_dir, "ask", args={"question": "  "})
+    control.request(short_dir, "off")
+    assert control.request(short_dir, "feed")["started_at"] is None
+
+
+def test_ask_errors_never_raise():
+    from hermes_recorder import ask
+    from hermes_recorder.buffer import Entry, RingBuffer
+    rec = type("R", (), {"buffer": RingBuffer(30)})()
+    assert "Nothing was captured" in ask.answer("hi", 5, rec=rec, llm=object())["answer"]
+    import time as _t
+    rec.buffer.add(Entry("transcript", _t.time(), "us.zoom.xos", "them", "hello there"))
+
+    class Boom:
+        def complete(self, **kw):
+            raise RuntimeError("provider down")
+
+    assert "provider down" in ask.answer("hi", 5, rec=rec, llm=Boom())["error"]

@@ -2,7 +2,8 @@
 
 Started lazily on the plugin's first activity in a process, never from register(). The socket is 0600 and
 every request must carry the token from `control.token` (also 0600), so only the same macOS user can use it.
-One JSON request per connection: {"op": "toggle|on|off|status", "token": "...", "apps": [...]}.
+One JSON request per connection: {"op": "...", "token": "...", "apps": [...], "args": {...}}.
+The recorder panel (in the hotkey agent) also uses it: ``summon``, ``feed``, ``ask``, ``pause``, ``resume``.
 """
 from __future__ import annotations
 
@@ -18,7 +19,8 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 MAX_REQUEST = 16 * 1024
-OPS = ("toggle", "on", "off", "status")
+MAX_REPLY = 1024 * 1024  # a panel feed carries up to FEED_MAX transcript lines
+OPS = ("toggle", "on", "off", "status", "summon", "feed", "ask", "pause", "resume")
 
 
 def paths(data_dir: Path) -> tuple[Path, Path]:
@@ -108,8 +110,12 @@ class ControlServer:
                     apps = req.get("apps")
                     apps = [str(a) for a in apps] if isinstance(apps, list) else None
                     fb = req.get("fallback_apps")
-                    fb = [str(a) for a in fb] if isinstance(fb, list) else None
-                    reply = self.handle(req["op"], apps, fb) if fb else self.handle(req["op"], apps)
+                    kw: dict[str, Any] = {}
+                    if isinstance(fb, list) and fb:
+                        kw["fallback_apps"] = [str(a) for a in fb]
+                    if isinstance(req.get("args"), dict) and req["args"]:
+                        kw["args"] = req["args"]
+                    reply = self.handle(req["op"], apps, **kw)
             except Exception as e:  # never let a bad request hurt the gateway
                 reply = {"error": f"{type(e).__name__}: {e}"}
             try:
@@ -119,8 +125,8 @@ class ControlServer:
 
 
 def request(data_dir: Path, op: str, apps: list[str] | None = None, timeout: float = 30,
-            fallback_apps: list[str] | None = None) -> dict[str, Any]:
-    """Client side (CLI). Raises ConnectionError when no gateway is listening."""
+            fallback_apps: list[str] | None = None, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Client side (CLI, hotkey, panel). Raises ConnectionError when no gateway is listening."""
     sock_path, token_path = paths(data_dir)
     try:
         token = token_path.read_text().strip()
@@ -139,5 +145,7 @@ def request(data_dir: Path, op: str, apps: list[str] | None = None, timeout: flo
             body["apps"] = apps
         if fallback_apps:
             body["fallback_apps"] = fallback_apps
+        if args:
+            body["args"] = args
         s.sendall((json.dumps(body) + "\n").encode())
-        return json.loads(s.makefile("rb").readline(MAX_REQUEST) or b"{}")
+        return json.loads(s.makefile("rb").readline(MAX_REPLY) or b"{}")

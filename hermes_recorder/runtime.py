@@ -116,6 +116,7 @@ class Recorder:
         self.manager = HelperManager(self.buffer, self.data_dir,
                                      launcher or _dev_launcher() or AppLauncher(self.data_dir))
         self._autostart_tried = False
+        self.started_at: float | None = None  # when capture last started (the panel shows elapsed time)
         self.manager.on_status = self.write_status  # keep `hermes recorder status` current (every ~15 s)
 
     # ------------------------------------------------------------------ actions
@@ -124,12 +125,14 @@ class Recorder:
         opts = {k: config(k) for k in ("whisper_model", "capture_mic", "capture_events", "capture_snapshots")}
         try:
             self.manager.start(apps, opts)
+            self.started_at = time.time()
             remember_apps(self.manager.apps)
         finally:
             self.write_status()
 
     def stop(self) -> None:
         self.manager.stop()
+        self.started_at = None
         self.write_status()
 
     def pause(self) -> None:
@@ -229,12 +232,19 @@ def remember_apps(apps: list[str]) -> None:
         pass
 
 
-def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | None = None) -> dict[str, Any]:
+FEED_MAX = 200        # transcript lines per panel feed
+FEED_OVERLAP_S = 15   # resend this much before `since`: mic and app lines can arrive out of order
+
+
+def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | None = None,
+                    args: dict[str, Any] | None = None) -> dict[str, Any]:
     """``fallback_apps`` (the hotkey sends the frontmost app) is used only if no apps are known yet."""
     from .helper_manager import LaunchError
     rec = get()
+    args = args or {}
     if not apps and fallback_apps and not (remembered_apps() or config("apps")):
         apps = fallback_apps
+    started = False
     try:
         if op == "toggle":
             rec.toggle(apps)
@@ -242,9 +252,37 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             rec.start(apps)
         elif op == "off":
             rec.stop()
+        elif op == "summon":  # hotkey: start if off; the panel is shown either way
+            if rec.manager.state not in ("running", "paused", "starting"):
+                rec.start(apps)
+                started = True
+        elif op == "pause":
+            rec.pause()
+        elif op == "resume":
+            rec.resume()
+        elif op == "feed":
+            return {**_brief(rec), **_feed(rec, args.get("since"))}
+        elif op == "ask":
+            from .ask import answer
+            return answer(str(args.get("question") or ""), args.get("minutes") or 5, rec=rec)
     except LaunchError as e:
-        return {**_brief(rec), "error": str(e)}
-    return _brief(rec)
+        return {**_brief(rec), "error": str(e), "started": False}
+    out = _brief(rec)
+    if op == "summon":
+        out["started"] = started
+    return out
+
+
+def _feed(rec: Recorder, since: Any) -> dict[str, Any]:
+    now = time.time()
+    try:
+        t0 = float(since) - FEED_OVERLAP_S
+    except (TypeError, ValueError):
+        t0 = 0.0
+    t0 = max(t0, now - rec.buffer.max_age_s)
+    entries = rec.buffer.slice(t0, now + 1, ("transcript",))[-FEED_MAX:]
+    lines = [{"ts": round(e.ts, 3), "speaker": e.speaker, "app": app_name(e.app), "text": e.text} for e in entries]
+    return {"now": now, "started_at": rec.started_at, "lines": lines}
 
 
 def _brief(rec: Recorder) -> dict[str, Any]:

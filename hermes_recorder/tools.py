@@ -40,6 +40,22 @@ def _num(v: Any, default: float, lo: float, hi: float) -> float:
     return min(max(x, lo), hi)
 
 
+def recall_lines(entries: list, now: float | None = None,
+                 cap: int = RECALL_CHAR_CAP) -> tuple[list[dict[str, Any]], bool]:
+    """Transcript entries as recall lines, keeping the newest ones within ``cap`` characters."""
+    now = time.time() if now is None else now
+    lines, used, truncated = [], 0, False
+    for e in reversed(entries):
+        size = len(e.text) + 40
+        if used + size > cap:
+            truncated = True
+            break
+        lines.append({"t": _ago(e.ts, now), "app": runtime.app_name(e.app), "speaker": e.speaker, "text": e.text})
+        used += size
+    lines.reverse()
+    return lines, truncated
+
+
 @_safe
 def screen_recall(args: dict) -> dict:
     rec = runtime.get()
@@ -56,17 +72,7 @@ def screen_recall(args: dict) -> dict:
         # so return the whole window rather than an empty answer.
         entries = rec.buffer.search("", minutes, app=app, speaker=speaker)
         fallback = bool(entries)
-    now = time.time()
-    lines, used, truncated = [], 0, False
-    for e in reversed(entries):  # keep the newest lines when over the cap
-        line = {"t": _ago(e.ts, now), "app": runtime.app_name(e.app), "speaker": e.speaker, "text": e.text}
-        size = len(e.text) + 40
-        if used + size > RECALL_CHAR_CAP:
-            truncated = True
-            break
-        lines.append(line)
-        used += size
-    lines.reverse()
+    lines, truncated = recall_lines(entries)
     out: dict[str, Any] = {"lines": lines, "truncated": truncated, "minutes": round(minutes, 1)}
     if fallback:
         out["note"] = f"No line contained the words in '{query}', so these are all lines from the last {minutes:g} min."
