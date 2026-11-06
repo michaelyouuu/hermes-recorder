@@ -261,3 +261,7 @@ stream, through the helper's chunking, filters and buffer merge, and reports WER
 - **Gateway readiness — no hook.** `on_session_start` fires from agent init (a turn), and `gateway_platform_event`
   only for adapter events (reactions and the like). Nothing fires when the gateway starts, so the control socket
   still starts on the first message. The panel now explains this and offers to open Hermes.
+- **2026-11-06, grants flipping off:** the S1 spike's `spikes/out/Hermes Recorder Helper.app` had the real helper's bundle
+  id with a different CDHash. TCC keeps one entry per bundle id, so Accessibility/Input Monitoring kept matching the
+  wrong build (✗ for the real helper) and each change killed the hotkey agent. Removed it; the spike now builds
+  `io.github.michaelyouuu.hermes-recorder.spike-s1`.
