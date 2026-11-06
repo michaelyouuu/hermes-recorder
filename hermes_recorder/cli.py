@@ -245,7 +245,7 @@ def _teach(action: str, paths: setup.Paths | None = None) -> int:
         print(f"Run `hermes recorder setup` first ({why}).")
         return 1
     print("Teach mode records what you click and type in the apps being recorded, so Hermes can learn a task\n"
-          "from watching you do it once. Passwords are never read. It needs two more macOS permissions.")
+          "from watching you do it once. Passwords are never read. It uses Accessibility and Input Monitoring.")
     if not guide.ensure(paths, guide.TEACH):
         return 1
     if ctx is not None:
