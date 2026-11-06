@@ -27,6 +27,8 @@ def main() -> int:
     ap.add_argument("--seconds", type=float, default=60)
     ap.add_argument("--log", required=True)
     ap.add_argument("--ask", help="type this question into the panel after it loads")
+    ap.add_argument("--scenario", choices=["notes", "down"], help="notes: ask, stop, accept the offer; down: no gateway")
+    ap.add_argument("--shots", help="directory for screenshots of the panel (screencapture -l)")
     a = ap.parse_args()
     logging.basicConfig(filename=a.log, level=logging.INFO, format="%(asctime)s %(message)s")
     log = logging.getLogger("hermes_recorder_helper")
@@ -39,6 +41,12 @@ def main() -> int:
 
     def client(op, timeout=30, apps=None, fallback_apps=None, args=None):
         log.info("client %s %s", op, args)
+        if a.scenario == "down":
+            raise ConnectionError("no gateway")
+        if op == "notes":
+            time.sleep(1.5)
+            return {"path": "/tmp/s6-note.md", "title": "Q3 review planning call",
+                    "summary": "Review set for Thursday at 3 PM; bring Q3 numbers and the hiring plan."}
         if op in ("pause", "resume", "on", "off"):
             state["s"] = {"pause": "paused", "resume": "running", "on": "running", "off": "stopped"}[op]
         if op == "ask":
@@ -48,7 +56,7 @@ def main() -> int:
         lines = [{"ts": t0 + i * 3, "speaker": s, "app": app or "", "text": txt} for i, (s, app, txt) in
                  enumerate(DEMO[:n])]
         return {"state": state["s"], "apps": ["FaceTime"], "error": None, "now": time.time(), "started_at": t0 - 65,
-                "lines": lines}
+                "lines": lines, "session_lines": 40, "session_minutes": 7.5}
 
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(1)
@@ -56,7 +64,27 @@ def main() -> int:
     panel = RecorderPanel(client)
     panel.show()
     asked = False
+    steps = []
+    if a.scenario == "notes":
+        js = "document.getElementById('q').value = %r; document.getElementById('ask').requestSubmit()"
+        steps = [(3, js % "When is the review?"), (6, js % "what should I bring to it?"), (9.5, "shot:qa"),
+                 (10, "document.getElementById('stop').click()"), (13, "shot:offer"),
+                 (13.5, "document.querySelector('.note .btn.primary').click()"), (14.2, "shot:saving"),
+                 (17, "shot:saved")]
+    elif a.scenario == "down":
+        steps = [(4, "shot:down")]
+
+    def shot(name):
+        if a.shots and panel.win is not None:
+            import subprocess
+            out = os.path.join(a.shots, f"s6-{name}.png")
+            subprocess.run(["/usr/sbin/screencapture", "-x", "-o", "-l", str(panel.win.windowNumber()), out])
+            log.info("shot %s", out)
+
     while time.time() - t0 < a.seconds:
+        while steps and time.time() - t0 >= steps[0][0]:
+            _, act = steps.pop(0)
+            shot(act[5:]) if act.startswith("shot:") else panel._js(act)
         ev = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
             NSEventMaskAny, NSDate.dateWithTimeIntervalSinceNow_(0.5), NSDefaultRunLoopMode, True)
         if ev is not None:

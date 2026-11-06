@@ -1,5 +1,8 @@
 """The recorder panel: a floating HUD (live transcript, ask box, pause/stop) shown by the global hotkey.
 
+Also: Save notes (the ``notes`` op writes a markdown note through the gateway; "Show in Finder" reveals it), an
+offer to save notes when recording stops, and follow-up questions (the page sends its last few Q&As with each ask).
+
 Runs in the hotkey agent (Hermes Recorder Helper.app in hotkey mode), which never captures anything itself. It is
 a non-activating NSPanel, so it takes typing without pulling focus from the call or video underneath, and it renders
 ``panel.html`` in a WKWebView: Q&A over the recent buffer, no live transcript. Everything comes from the gateway
@@ -11,13 +14,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
 import objc
-from AppKit import NSColor, NSEvent, NSMakeRect, NSPanel, NSScreen, NSVisualEffectView
+from AppKit import NSColor, NSEvent, NSMakeRect, NSPanel, NSScreen, NSVisualEffectView, NSWorkspace
 from Foundation import NSURL, NSObject
 from PyObjCTools import AppHelper
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
@@ -27,7 +32,9 @@ log = logging.getLogger("hermes_recorder_helper")
 HTML = Path(__file__).with_name("panel.html")
 W, H = 400, 460
 POLL_S = 2.0
-NOT_LISTENING = "Hermes isn't listening yet. Send Hermes any message, then try again."
+NOT_LISTENING = "Hermes is starting up. Open Hermes and send it any message, then try again."
+HERMES_APP_IDS = ("com.nousresearch.hermes.setup", "com.nousresearch.hermes")  # Hermes Desktop
+NOTES_TIMEOUT_S = 180
 
 # NSWindowStyleMask bits and other AppKit constants (numeric, so older pyobjc metadata can't trip us up)
 TITLED, CLOSABLE, RESIZABLE, NONACTIVATING, FULL_SIZE = 1, 2, 8, 1 << 7, 1 << 15
@@ -65,6 +72,16 @@ def _plain(v: Any) -> Any:
     if isinstance(v, (int, float)):
         return v
     return None if v is None else str(v)
+
+
+def _hermes_app():
+    """URL of the Hermes Desktop app, if installed."""
+    ws = NSWorkspace.sharedWorkspace()
+    for bid in HERMES_APP_IDS:
+        url = ws.URLForApplicationWithBundleIdentifier_(bid)
+        if url is not None:
+            return url
+    return None
 
 
 class RecorderPanel:
@@ -179,7 +196,16 @@ class RecorderPanel:
         elif op in ("pause", "resume", "start", "stop"):
             self._async(self._control, {"start": "on", "stop": "off"}.get(op, op))
         elif op == "ask":
-            self._async(self._ask, msg.get("id"), msg.get("question") or "", msg.get("minutes") or 5)
+            self._async(self._ask, msg.get("id"), msg.get("question") or "", msg.get("minutes") or 5,
+                        msg.get("history") or [])
+        elif op == "notes":
+            self._async(self._notes, msg.get("id"))
+        elif op == "reveal":
+            self._reveal(str(msg.get("path") or ""))
+        elif op == "openHermes":
+            url = _hermes_app()
+            if url is not None:
+                NSWorkspace.sharedWorkspace().openURL_(url)
 
     # ------------------------------------------------------------------ worker threads
     @staticmethod
@@ -190,7 +216,8 @@ class RecorderPanel:
         try:
             return self.client(op, timeout=timeout, **kw)
         except ConnectionError:
-            return {"state": "error", "error": NOT_LISTENING}
+            return {"state": "error", "error": NOT_LISTENING, "not_listening": True,
+                    "can_open_hermes": _hermes_app() is not None}
         except Exception as e:
             return {"state": "error", "error": f"{type(e).__name__}: {e}"}
 
@@ -199,11 +226,23 @@ class RecorderPanel:
             self._push("status", {"state": "starting"})
         self._push("status", self._request(op))
 
-    def _ask(self, qid: Any, question: str, minutes: Any) -> None:
+    def _ask(self, qid: Any, question: str, minutes: Any, history: Any = None) -> None:
         t0 = time.time()
-        r = self._request("ask", timeout=90, args={"question": question, "minutes": minutes})
+        r = self._request("ask", timeout=90, args={"question": question, "minutes": minutes, "history": history})
         log.info("panel ask %s in %.1fs", "failed" if r.get("error") else "ok", time.time() - t0)
         self._push("reply", qid, {k: r.get(k) for k in ("answer", "error", "seconds")})
+
+    def _notes(self, qid: Any) -> None:
+        t0 = time.time()
+        r = self._request("notes", timeout=NOTES_TIMEOUT_S, args={})
+        log.info("panel notes %s in %.1fs", "failed" if r.get("error") else "saved", time.time() - t0)
+        self._push("reply", qid, {k: r.get(k) for k in ("path", "title", "summary", "note", "error")})
+
+    @staticmethod
+    def _reveal(path: str) -> None:
+        """Show a saved note in Finder (only .md files that exist)."""
+        if path.endswith(".md") and os.path.isfile(path):
+            subprocess.run(["/usr/bin/open", "-R", path], check=False, timeout=10)
 
     def _poll(self) -> None:
         while True:

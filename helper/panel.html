@@ -39,6 +39,15 @@
   .banner { margin: 0 12px 8px; padding: 6px 10px; border-radius: 8px; background: rgba(255,69,58,.14);
     font-size: 12px; display: none; }
   .banner.show { display: block; }
+  .banner .btn { margin-left: 8px; padding: 2px 8px; font-size: 11.5px; vertical-align: 0; }
+  .note { flex: none; background: var(--card); border-radius: 12px; padding: 10px 12px; animation: rise .18s ease-out;
+    -webkit-user-select: text; cursor: auto; border: 1px solid var(--line); }
+  .note .k { font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
+  .note .t { font-weight: 600; margin-bottom: 3px; }
+  .note .s { color: var(--fg2); white-space: pre-wrap; }
+  .note .row { display: flex; gap: 6px; margin-top: 8px; }
+  .note .row .btn.primary { background: var(--accent); color: #fff; }
+  .note.err .s { color: var(--rec); }
 
   #answers { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 2px; overflow-y: auto;
     border-top: 1px solid var(--line); }
@@ -102,6 +111,7 @@
   <footer>
     <button class="btn" id="pause">Pause</button>
     <button class="btn" id="stop"><i></i>Stop</button>
+    <button class="btn" id="notes" title="Write notes from this session to your notes folder" disabled>Save notes</button>
     <span class="hint"><kbd>⌃⌥R</kbd> hide · <kbd>esc</kbd></span>
   </footer>
 <script>
@@ -114,7 +124,51 @@
   const box = $('answers');
   const EXAMPLES = ['What was just said?', 'Summarize the last few minutes', 'What times or numbers came up?'];
   let minutes = 5, state = 'stopped', startedAt = null, clockSkew = 0, nextId = 1;
-  const pending = {};
+  let sessionLines = 0, sessionMin = 0, saving = false, offered = false, lastSeen = Date.now();
+  const pending = {}, history = [];   // history: last few {q, a} so follow-up questions work
+  const HISTORY = 3, FORGET_MS = 10 * 60 * 1000;
+
+  function scrollEnd() { box.scrollTop = box.scrollHeight; }
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function button(label, cls, onclick) { const b = el('button', 'btn' + (cls ? ' ' + cls : ''), label); b.type = 'button'; b.onclick = onclick; return b; }
+
+  function offerNotes() {
+    if (offered || saving || sessionLines < 3 || sessionMin < 1) return;
+    offered = true;
+    const card = el('div', 'note');
+    card.append(el('div', 'k', 'Recording stopped'),
+                el('div', 's', 'Save notes from this session (' + Math.round(sessionMin) + ' min)?'));
+    const row = el('div', 'row');
+    row.append(button('Save notes', 'primary', () => { card.remove(); saveNotes(); }),
+               button('No thanks', '', () => card.remove()));
+    card.append(row); box.appendChild(card); showEmpty(); scrollEnd();
+  }
+
+  function saveNotes() {
+    if (saving) return;
+    saving = true; $('notes').disabled = true;
+    const id = nextId++;
+    const card = el('div', 'note');
+    const s = el('div', 's'); s.innerHTML = '<span class="spin"></span>Writing notes…';
+    card.append(el('div', 'k', 'Notes'), s); box.appendChild(card); showEmpty(); scrollEnd();
+    pending[id] = { notes: card };
+    post('notes', { id });
+  }
+
+  function notesDone(card, r) {
+    saving = false; card.textContent = '';
+    if (r.error) { card.classList.add('err'); card.append(el('div', 'k', 'Notes not saved'), el('div', 's', r.error)); }
+    else {
+      card.append(el('div', 'k', 'Notes saved'), el('div', 't', r.title || 'Notes'), el('div', 's', r.summary || ''));
+      const row = el('div', 'row');
+      row.append(button('Show in Finder', '', () => post('reveal', { path: r.path })));
+      card.append(row);
+      if (r.note) card.append(el('div', 's', r.note));
+    }
+    updateNotesButton(); scrollEnd();
+  }
+
+  function updateNotesButton() { $('notes').disabled = saving || sessionLines < 3; }
 
   const fmt = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
@@ -122,7 +176,7 @@
 
   function showEmpty() {
     const old = box.querySelector('.empty');
-    if (box.querySelector('.qa')) { if (old) old.remove(); return; }
+    if (box.querySelector('.qa, .note')) { if (old) old.remove(); return; }
     const kind = recording() ? 'rec' : 'off';
     if (old && old.dataset.kind === kind) return;
     if (old) old.remove();
@@ -143,9 +197,13 @@
   }
 
   function setState(f) {
+    const was = state;
     state = f.state || 'stopped';
+    if ('session_lines' in f) { sessionLines = f.session_lines || 0; sessionMin = f.session_minutes || 0; }
+    if (state === 'running' && (was === 'stopped' || was === 'error')) { offered = false; history.length = 0; }
     document.body.className = state;
-    $('state').textContent = { running: 'Recording', paused: 'Paused', starting: 'Starting…', error: 'Error' }[state] || 'Stopped';
+    $('state').textContent = f.not_listening ? 'Waiting for Hermes'
+      : ({ running: 'Recording', paused: 'Paused', starting: 'Starting…', error: 'Error' }[state] || 'Stopped');
     if (f.apps) $('apps').textContent = f.apps.length ? '· ' + f.apps.join(', ') : '';
     if ('started_at' in f) startedAt = f.started_at || null;
     if (f.now) clockSkew = Date.now() / 1000 - f.now;
@@ -156,9 +214,14 @@
     s.className = off ? 'btn start' : 'btn';
     s.lastChild.textContent = off ? 'Start' : 'Stop';
     const b = $('banner');
-    if (f.error) { b.textContent = f.error; b.classList.add('show'); } else b.classList.remove('show');
+    if (f.error) {
+      b.textContent = f.error; b.classList.add('show');
+      if (f.not_listening && f.can_open_hermes) b.append(button('Open Hermes', '', () => post('openHermes')));
+    } else b.classList.remove('show');
     tick();
     showEmpty();
+    updateNotesButton();
+    if ((was === 'running' || was === 'paused') && state === 'stopped') offerNotes();
   }
 
   function tick() {
@@ -189,25 +252,35 @@
     showEmpty();
     while (box.children.length > 20) box.firstElementChild.remove();
     box.scrollTop = box.scrollHeight;
-    pending[id] = { a, meta };
+    pending[id] = { a, meta, q };
     $('q').value = '';
-    post('ask', { id, question: q, minutes });
+    post('ask', { id, question: q, minutes, history: history.slice(-HISTORY) });
   });
 
   $('pause').onclick = () => post(state === 'paused' ? 'resume' : 'pause');
   $('stop').onclick = () => post(state === 'stopped' || state === 'error' ? 'start' : 'stop');
   $('close').onclick = () => post('hide');
+  $('notes').onclick = saveNotes;
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); post('hide'); } });
 
   window.rec = {
     status: setState,
     reply(id, r) {
       const p = pending[id]; if (!p) return; delete pending[id];
+      if (p.notes) return notesDone(p.notes, r);
       if (r.error) { p.a.className = 'a err'; p.a.textContent = r.error; }
-      else { p.a.textContent = r.answer; if (r.seconds) p.meta.textContent += ' · ' + r.seconds + 's'; }
-      box.scrollTop = box.scrollHeight;
+      else {
+        p.a.textContent = r.answer; if (r.seconds) p.meta.textContent += ' · ' + r.seconds + 's';
+        history.push({ q: p.q, a: r.answer }); while (history.length > HISTORY) history.shift();
+      }
+      lastSeen = Date.now();
+      scrollEnd();
     },
-    shown() { $('q').focus(); },
+    shown() {
+      if (Date.now() - lastSeen > FORGET_MS) history.length = 0;  // a new conversation after a long break
+      lastSeen = Date.now();
+      $('q').focus();
+    },
   };
   showEmpty();
   post('ready');
