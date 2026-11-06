@@ -527,6 +527,7 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Panel questions are answered by one `ctx.llm.complete` over the buffer window, not an agent turn | Fast and stays inside plugin API; full agent stays available in chat/HUD |
 | 2026-11-05 | Panel is Q&A only; the model sees sources as the app name or "you (microphone)", never them/me | Michael: no streamed text, and them/me is confusing on YouTube |
 | 2026-11-05 | Added `pyobjc-framework-WebKit` (helper venv) | Panel UI is HTML in a WKWebView; pure AppKit would be far more code. Approved by Michael |
+| 2026-11-05 | Panel `ask` runs `ctx.llm` in a copy of the latest gateway turn's context (captured in `pre_llm_call`) | Michael's gateway multiplexes profiles; credentials resolve only inside a turn's contextvar secret scope, so a call from our control thread raised `UnscopedSecretError` (seen live) |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---

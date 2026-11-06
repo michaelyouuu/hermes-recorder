@@ -11,6 +11,7 @@ log = logging.getLogger(__name__)
 
 def pre_llm_call(**kwargs: Any) -> dict | None:
     runtime.ensure_control(platform=kwargs.get("platform"))
+    runtime.remember_turn_context(kwargs.get("platform"))  # lets the panel's ask reach the model (see runtime)
     try:
         rec = runtime.peek()
         if rec is None:

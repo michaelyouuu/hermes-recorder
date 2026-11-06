@@ -178,3 +178,31 @@ def test_ask_errors_never_raise():
             raise RuntimeError("provider down")
 
     assert "provider down" in ask.answer("hi", 5, rec=rec, llm=Boom())["error"]
+
+
+def test_ask_runs_in_the_latest_turn_context(monkeypatch):
+    import contextvars
+    from hermes_recorder import ask, hooks
+    from hermes_recorder.buffer import Entry, RingBuffer
+    import time as _t
+    scope = contextvars.ContextVar("scope", default=None)
+    runtime.reset_for_tests(None)
+    rec = type("R", (), {"buffer": RingBuffer(30)})()
+    rec.buffer.add(Entry("transcript", _t.time(), "com.microsoft.edgemac", "them", "the learning rate was 3e-4"))
+    rec.buffer.add(Entry("transcript", _t.time(), None, "me", "interesting"))
+
+    class LLM:
+        def complete(self, messages, **kw):
+            if scope.get() is None:
+                raise type("UnscopedSecretError", (RuntimeError,), {})("no scope")
+            return type("R", (), {"text": scope.get() + ": " + messages[1]["content"]})()
+
+    assert "Send Hermes any message" in ask.answer("lr?", 5, rec=rec, llm=LLM())["error"]
+    token = scope.set("profile-a")
+    hooks.pre_llm_call(platform="desktop")  # a gateway turn: remembered
+    scope.reset(token)
+    hooks.pre_llm_call(platform="cli")      # CLI turns are ignored
+    out = ask.answer("lr?", 5, rec=rec, llm=LLM())["answer"]
+    assert out.startswith("profile-a: ")
+    assert "Microsoft Edge: the learning rate" in out and "you (microphone): interesting" in out
+    runtime.reset_for_tests(None)

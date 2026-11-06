@@ -52,12 +52,16 @@ def answer(question: str, minutes: float = 5, rec: Any = None, llm: Any = None) 
             return {"error": "Hermes didn't give the plugin model access (ctx.llm is unavailable)."}
         note = " (older lines were cut to fit)" if truncated else ""
         user = (f"Transcript of the last {minutes:g} min{note}:\n{_format(lines)}\n\nQuestion: {question}")
-        res = llm.complete(messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
-                           max_tokens=500, purpose="hermes-recorder: panel ask")
+        res = runtime.run_in_turn_context(
+            llm.complete, messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
+            max_tokens=500, purpose="hermes-recorder: panel ask")
         text = str(getattr(res, "text", "") or "").strip()
         secs = round(time.time() - t0, 1)
         log.info("hermes-recorder: panel ask ok in %ss (%d lines)", secs, len(lines))
         return {"answer": text or "(the model returned no text)", "lines": len(lines), "seconds": secs}
     except Exception as e:
         log.warning("hermes-recorder: panel ask failed: %s", e)
+        if type(e).__name__ == "UnscopedSecretError" and not runtime.has_turn_context():
+            return {"error": "Hermes restarted and hasn't seen a message yet, so the recorder can't reach your "
+                             "model. Send Hermes any message, then ask again."}
         return {"error": f"{type(e).__name__}: {e}"}

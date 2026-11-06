@@ -1,6 +1,7 @@
 """Process-wide recorder state, created lazily on first use (never in register())."""
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -211,6 +212,27 @@ class Recorder:
 _memory_apps: list[str] = []
 
 
+# Context of the latest gateway turn. On a multi-profile gateway, Hermes only resolves credentials inside a turn's
+# context (a contextvar secret scope); the panel's ask runs on our control-socket thread, so it reuses a copy.
+_turn_context: contextvars.Context | None = None
+
+
+def remember_turn_context(platform: str | None) -> None:
+    global _turn_context
+    if (platform or "") not in NON_GATEWAY_PLATFORMS:
+        _turn_context = contextvars.copy_context()
+
+
+def run_in_turn_context(fn, *args, **kwargs):
+    """Run ``fn`` in a copy of the latest turn's context (or the current one if there was no turn yet)."""
+    snap = _turn_context
+    return snap.copy().run(fn, *args, **kwargs) if snap is not None else fn(*args, **kwargs)
+
+
+def has_turn_context() -> bool:
+    return _turn_context is not None
+
+
 def remembered_apps() -> list[str]:
     try:
         if _ctx is not None:
@@ -367,7 +389,8 @@ def shutdown() -> None:
 
 
 def reset_for_tests(recorder: Recorder | None = None) -> None:
-    global _recorder, _control_tried, _memory_apps
+    global _recorder, _control_tried, _memory_apps, _turn_context
+    _turn_context = None
     _recorder = recorder
     _control_tried = False
     _memory_apps = []
