@@ -567,6 +567,9 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-06 | Panel sends its last 3 Q&As; "Waiting for Hermes" banner with Open Hermes | Follow-ups failed; S8 found no gateway-start hook, so the socket still starts on the first message |
 | 2026-11-06 | `hermes recorder check <app>` + `diag` control op | Lets users and us verify an app (Zoom, Meet, Twitch) before claiming support |
 | 2026-11-06 | Lead story: local meeting copilot that learns your follow-up; teach-mode demo target Linear | Lectures read as "a prompt over a transcript"; meetings → notes → taught follow-up is more than a prompt could do. Chosen by Michael |
+| 2026-11-06 | Call offers: the hotkey agent watches CoreAudio's per-process "running input" flag (no audio); a call app on the mic 3 s → panel offers to record (never automatic); idle 8 s → offer to stop + save notes. `call_prompt` setting | Forgetting to press record is the #1 recorder complaint; detection without capture stays within "ask before widening capture" |
+| 2026-11-06 | Teach-mode events only for apps being captured (helper filters, plugin re-checks); `{EMAIL}` masked | Keeps the per-app allowlist; the demo captures Zoom + the browser with Linear |
+| 2026-11-06 | Meeting notes: decisions + `{task, owner, due}` action items first; the teach draft gets the last meeting's action items; follow-up runs through the bundled `replay-recorded` skill in chat | Ties notes → taught skill → follow-up. Plugins can't start an agent turn, so "Follow up" is a chat request, not a panel button |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---

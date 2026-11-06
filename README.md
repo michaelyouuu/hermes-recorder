@@ -1,8 +1,9 @@
 # hermes-recorder
 
-**Local screen and audio memory for [Hermes Agent](https://hermes-agent.nousresearch.com).**
-Ask about any call or video you just watched, save notes you can come back to, and (soon) teach Hermes a task by
-doing it once.
+**A local meeting copilot for [Hermes Agent](https://hermes-agent.nousresearch.com) that learns your follow-up.**
+Hermes hears your calls (Zoom, Meet, FaceTime, Teams; no bot joins), writes meeting notes with decisions and action
+items, and after you do the follow-up once (say, filing the action items in Linear) it turns that into a skill and
+does it for you after the next meeting. Everything is captured and transcribed on your Mac.
 
 > Status: **in development** for the Nous Research Hermes Agent Plugin Hackathon. **Ask mode works**
 > (M2); teach mode is next. Not yet in the plugin catalog.
@@ -14,8 +15,13 @@ doing it once.
 - **Save notes (works now):** one click turns a lecture, video or call into a markdown note (summary, key points,
   details, action items, open questions) in `~/Documents/Hermes Notes`. Later, ask Hermes "what did I learn about
   attention yesterday?" and it searches your notes.
-- **Teach mode (in progress):** turn the last few minutes of clicks, typing and narration into a reusable `SKILL.md`, after
-  the fact, without pressing record first.
+- **Call offers:** when a call starts, the recorder panel asks "Record this call?" (one click; it never records on
+  its own). When the call ends it offers to stop and save meeting notes.
+- **Teach mode:** do a task once (for example, file a meeting's action item in Linear, saying why as you go), then
+  tell Hermes "turn what I just did into a skill". It drafts a `SKILL.md` from your clicks, typing and narration,
+  asks 2–3 questions about cases you didn't show, and saves it after you approve. No need to press record first.
+- **Follow up:** after the next meeting, "follow up on my last meeting" runs that skill for each action item, and
+  stops for your approval before anything is created or sent.
 
 ## Tools
 | Tool | Use |
@@ -25,7 +31,7 @@ doing it once.
 | `recorder_control` | `start`, `stop`, `pause`, `resume`, `set_apps` |
 | `recorder_save_notes` | Write a note from the current or last session (`minutes`, `title_hint`) |
 | `recorder_notes` | Search and read saved notes (`query`, `days`, `path`) |
-| `recorder_draft_skill` | Draft a skill from a recorded demonstration (M3) |
+| `recorder_draft_skill` | Draft a skill from what you just did (`minutes`, `goal_hint`) |
 
 Commands: `/recorder on|off|pause|resume|status|notes [minutes]|forget [apps]`, `/teach [minutes]`,
 `hermes recorder status|check <app>`.
@@ -64,13 +70,31 @@ The other side shows up as "them" lines and your microphone as "me". Headphones 
   macOS asks for permissions in its name, whoever started Hermes. Nothing compiled ships with the plugin;
 - the transcription model (`base.en`, ~280 MB on disk), downloaded once from Hugging Face.
 
+## Teach mode
+1. Turn it on: Settings → Plugins → hermes-recorder → **Capture clicks and typing**, or
+   `hermes config set plugins.entries.hermes-recorder.settings.capture_events true`.
+2. Allow **Accessibility** and **Input Monitoring** for Hermes Recorder Helper (`hermes recorder doctor` links to both).
+3. Capture the app you work in too (`/recorder on zoom edge`): teach mode records clicks and typing **only in apps
+   being captured**.
+4. Do the task, ideally saying why you make each choice. Then ask Hermes: "turn what I just did into a skill".
+
+What's recorded: the element you clicked ("New issue" button), short field values or just the text you added to long
+fields, shortcuts such as ⌘↩, and the window title. Password fields are never read (macOS withholds those keys
+anyway); card numbers, codes, keys, tokens and email addresses are masked. Events live in the same RAM buffer as
+the transcript; only the skill you approve is saved.
+
+The bundled `replay-recorded` skill tells Hermes how to run recorded skills: inputs from your request or the meeting
+notes, visible element names instead of coordinates, and a mandatory approval before anything that creates, sends,
+pays, deletes or publishes.
+
 ## Saved notes
 - **How:** the panel's **Save notes** button, the offer the panel makes when you press Stop, `/recorder notes [minutes]`,
   or just ask Hermes to "save notes from this". The default covers your current or last recording session.
 - **Where:** one `.md` file per note in `~/Documents/Hermes Notes` (setting `notes_dir`; if that folder can't be
   written, `~/Hermes Notes`). Plain markdown with frontmatter (title, date, sources, tags), so it opens in Finder,
   Obsidian or any editor. Delete a file to forget it.
-- **What's in it:** the model's notes only. The raw transcript is never written to disk.
+- **What's in it:** the model's notes only. The raw transcript is never written to disk. Calls get meeting notes that
+  lead with **decisions** and **action items** (`- [ ] task (owner, due)`); videos get study notes.
 - **Finding them:** Hermes's `recorder_notes` tool searches titles, tags and text ("what did we decide on Monday's
   call?").
 
@@ -87,6 +111,9 @@ the **recorder panel** pops up over that app. It's Q&A only (no scrolling transc
 If capture is off, the press also starts recording (Tink). It records the apps you last chose, and the very first
 time, **the app in front of you**. Press ⌃⌥R again (or Esc) to hide the panel; recording continues until you press
 Stop. The panel doesn't take focus from your call or video, floats on every Space, and remembers where you put it.
+- **Calls:** the same login item notices when an app (Zoom, FaceTime, Teams, Slack, Discord, a browser for Meet)
+  starts using the microphone and offers to record that call. It reads only macOS's "this app is using the mic"
+  flag, never audio. Turn the offers off with the `call_prompt` setting.
 - The hotkey is a small login item that listens for that one key combination. It needs no permissions, captures
   nothing itself, and `hermes recorder hotkey off` removes it. Change the key with the `hotkey` setting
   (e.g. `cmd+shift+r`), then run `hermes recorder hotkey on`.
@@ -99,7 +126,7 @@ Stop. The panel doesn't take focus from your call or video, floats on every Spac
 | --- | --- | --- |
 | Screen & System Audio Recording | hearing the apps and calls you choose | switch on **Hermes Recorder Helper** in System Settings |
 | Microphone | your own voice ("me" lines) | Allow on the prompt |
-| Accessibility, Input Monitoring | teach mode only | switch on in System Settings when you enable teach mode |
+| Accessibility, Input Monitoring | teach mode only (clicks and typing in captured apps) | switch on in System Settings when you enable teach mode |
 
 `hermes recorder doctor` shows what's missing and links straight to the right Settings page. If Hermes's Python
 is updated, `setup` rebuilds the helper and macOS asks again.
