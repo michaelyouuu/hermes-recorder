@@ -52,6 +52,7 @@ def gateway(short_dir, monkeypatch):
     c = FakeCtx({"apps": []})
     c.state = type("S", (), {"d": {}, "get": lambda self, k, default=None: self.d.get(k, default),
                              "set": lambda self, k, v: self.d.__setitem__(k, v)})()
+    runtime.shutdown()  # no control server left over from another test
     registration.register_all(c)
     monkeypatch.setattr(runtime, "data_dir", lambda: short_dir)
     rec = runtime.Recorder(short_dir / "data", fake_launcher("call.jsonl"))
@@ -187,6 +188,7 @@ def test_ask_runs_in_the_latest_turn_context(monkeypatch):
     import time as _t
     scope = contextvars.ContextVar("scope", default=None)
     runtime.reset_for_tests(None)
+    monkeypatch.setattr(runtime, "ensure_control", lambda **kw: None)  # never open a real control socket
     rec = type("R", (), {"buffer": RingBuffer(30)})()
     rec.buffer.add(Entry("transcript", _t.time(), "com.microsoft.edgemac", "them", "the learning rate was 3e-4"))
     rec.buffer.add(Entry("transcript", _t.time(), None, "me", "interesting"))
