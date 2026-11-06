@@ -209,3 +209,19 @@ playing audio, to confirm during a call.
   stream may simply have been a quiet meeting (Zoom keeps its audio IO running throughout).
 - Status: paused at Michael's request. Verify with one normal call with another person speaking (recorder on Zoom,
   no other probes running) during demo rehearsal. FaceTime is the fallback for the me/them demo.
+- **FaceTime (2026-11-05, live call):** CoreAudio shows the call audio playing *and* the mic being read by
+  `/usr/libexec/avconferenced` (pid 814), not `FaceTime.app` (which has no audio IO). avconferenced owns no window, so
+  ScreenCaptureKit's per-app filter can never include it: adding `com.apple.FaceTime` to the app list cannot capture
+  "them". The recorder was also only capturing Edge (hotkey reused the remembered apps). While the call ran, our mic
+  stream's peak fell from ~1.0 to ~0.01 (FaceTime's voice processing), so "me" lines also mostly stopped.
+  Fix options: a CoreAudio process tap (`AudioHardwareCreateProcessTap` on avconferenced, macOS 14.2+), or demo the
+  call in a browser (Google Meet in Edge is captured like YouTube) or Zoom (main process plays its own audio).
+
+## S5: call audio via a CoreAudio process tap — PASS (2026-11-05, live FaceTime call)
+`spikes/s5_process_tap.py` builds `CATapDescription(stereoMixdownOfProcesses: [avconferenced])` (private, unmuted),
+an aggregate device holding the tap, and a ctypes IOProc. Run inside Hermes Recorder Helper.app:
+- Tap format 48 kHz stereo float32; 18.4 s captured in 20 s, peaks up to 0.89, and base.en transcribed the remote
+  side correctly. **No new permission prompt**: the helper's existing Screen & System Audio Recording grant covers it.
+- The user still hears the call (CATapUnmuted). Works with EarPods as the output device.
+- Gotcha: pyobjc exposes the `kAudioAggregateDevice*Key` / `kAudioSubTap*Key` constants as **bytes**; passing them
+  unconverted makes CoreAudio segfault inside `CreateAggregateDevice` (non-plist keys). Decode to str.
