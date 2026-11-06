@@ -74,6 +74,19 @@ def _plain(v: Any) -> Any:
     return None if v is None else str(v)
 
 
+def _app_name(bid: str) -> str:
+    from hermes_recorder.runtime import APP_NAMES  # friendly names shared with the plugin ("Zoom", not "zoom.us")
+    if bid in APP_NAMES:
+        return APP_NAMES[bid]
+    try:
+        url = NSWorkspace.sharedWorkspace().URLForApplicationWithBundleIdentifier_(bid)
+        if url is not None:
+            return str(url.lastPathComponent()).removesuffix(".app")
+    except Exception:
+        pass
+    return bid.rsplit(".", 1)[-1]
+
+
 def _hermes_app():
     """URL of the Hermes Desktop app, if installed."""
     ws = NSWorkspace.sharedWorkspace()
@@ -93,6 +106,7 @@ class RecorderPanel:
         self._visible = threading.Event()
         self._state = "unknown"  # last state from the gateway
         self._poller: threading.Thread | None = None
+        self._queued: list[str] = []  # page calls made before the page finished loading
 
     # ------------------------------------------------------------------ main thread
     def _build(self) -> None:
@@ -154,14 +168,16 @@ class RecorderPanel:
     def visible(self) -> bool:
         return self._visible.is_set()
 
-    def show(self) -> None:
+    def show(self, focus: bool = True) -> None:
+        """``focus=False`` (call offers) floats the panel without taking the keyboard from the call."""
         if self.win is None:
             self._build()
         self.win.orderFrontRegardless()
-        self.win.makeKeyWindow()
-        self.win.makeFirstResponder_(self.web)
+        if focus:
+            self.win.makeKeyWindow()
+            self.win.makeFirstResponder_(self.web)
+            self._js("window.rec && rec.shown()")
         self._visible.set()
-        self._js("window.rec && rec.shown()")
         if self._poller is None or not self._poller.is_alive():
             self._poller = threading.Thread(target=self._poll, name="panel-feed", daemon=True)
             self._poller.start()
@@ -179,6 +195,8 @@ class RecorderPanel:
     def _js(self, code: str) -> None:
         if self.web is not None and self._ready:
             self.web.evaluateJavaScript_completionHandler_(code, None)
+        elif code.startswith("window.rec && rec.") and "rec.shown()" not in code:
+            self._queued.append(code)
 
     def _push(self, method: str, *args: Any) -> None:
         """Call ``rec.<method>(...)`` in the page (any thread)."""
@@ -191,6 +209,9 @@ class RecorderPanel:
         if op == "ready":
             self._ready = True
             self._js("rec.shown()")
+            queued, self._queued = self._queued, []
+            for code in queued:
+                self._js(code)
         elif op == "hide":
             self.hide()
         elif op in ("pause", "resume", "start", "stop"):
@@ -202,6 +223,8 @@ class RecorderPanel:
             self._async(self._notes, msg.get("id"))
         elif op == "reveal":
             self._reveal(str(msg.get("path") or ""))
+        elif op == "recordCall":
+            self._async(self._record_call, str(msg.get("bid") or ""))
         elif op == "openHermes":
             url = _hermes_app()
             if url is not None:
@@ -236,7 +259,37 @@ class RecorderPanel:
         t0 = time.time()
         r = self._request("notes", timeout=NOTES_TIMEOUT_S, args={})
         log.info("panel notes %s in %.1fs", "failed" if r.get("error") else "saved", time.time() - t0)
-        self._push("reply", qid, {k: r.get(k) for k in ("path", "title", "summary", "note", "error")})
+        self._push("reply", qid, {k: r.get(k) for k in ("path", "title", "summary", "note", "error", "kind",
+                                                          "decisions", "action_items")})
+
+    def _record_call(self, bid: str) -> None:
+        self._push("status", {"state": "starting"})
+        r = self._request("record_call", apps=[bid] if bid else None)
+        self._push("status", r)
+
+    # ------------------------------------------------------------------ calls (helper/call_watch.py)
+    def on_call(self, kind: str, app: str) -> None:
+        """A call started or ended in ``app`` (main thread). Offers only; never starts recording itself."""
+        self._async(self._call_event, kind, app)
+
+    def _call_event(self, kind: str, app: str) -> None:
+        try:
+            st = self.client("status", timeout=5)
+        except Exception:
+            st = {"state": "unknown", "error": NOT_LISTENING, "not_listening": True}
+        recording = st.get("state") in ("running", "paused", "starting") and app in (st.get("bundle_ids") or [])
+        name = _app_name(app)
+        if kind == "start":
+            if recording or st.get("call_prompt") is False:
+                return
+            AppHelper.callAfter(self._offer, "offerCall", {"bid": app, "app": name})
+        elif kind == "end":
+            if recording:
+                AppHelper.callAfter(self._offer, "callEnded", {"bid": app, "app": name})
+
+    def _offer(self, method: str, info: dict) -> None:  # main thread
+        self.show(focus=False)
+        self._push(method, info)
 
     @staticmethod
     def _reveal(path: str) -> None:

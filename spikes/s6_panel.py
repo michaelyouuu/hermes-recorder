@@ -27,7 +27,7 @@ def main() -> int:
     ap.add_argument("--seconds", type=float, default=60)
     ap.add_argument("--log", required=True)
     ap.add_argument("--ask", help="type this question into the panel after it loads")
-    ap.add_argument("--scenario", choices=["notes", "down"], help="notes: ask, stop, accept the offer; down: no gateway")
+    ap.add_argument("--scenario", choices=["notes", "down", "call"], help="notes: ask, stop, accept the offer; down: no gateway")
     ap.add_argument("--shots", help="directory for screenshots of the panel (screencapture -l)")
     a = ap.parse_args()
     logging.basicConfig(filename=a.log, level=logging.INFO, format="%(asctime)s %(message)s")
@@ -43,7 +43,16 @@ def main() -> int:
         log.info("client %s %s", op, args)
         if a.scenario == "down":
             raise ConnectionError("no gateway")
+        if op == "record_call":
+            state["s"] = "running"
+            return {"state": "running", "apps": ["Zoom"], "bundle_ids": ["us.zoom.xos"], "started": True}
         if op == "notes":
+            time.sleep(1.5)
+            return {"path": "/tmp/s6-note.md", "title": "Q3 launch sync", "kind": "meeting",
+                    "summary": "Launch moves to Nov 20; onboarding bug must be fixed first.",
+                    "action_items": [{"task": "File the onboarding bug in Linear", "owner": "you", "due": "Friday"},
+                                     {"task": "Send the pricing deck", "owner": "Sam", "due": ""}]}
+        if op == "_unused":
             time.sleep(1.5)
             return {"path": "/tmp/s6-note.md", "title": "Q3 review planning call",
                     "summary": "Review set for Thursday at 3 PM; bring Q3 numbers and the hiring plan."}
@@ -55,6 +64,10 @@ def main() -> int:
         n = min(len(DEMO), int((time.time() - t0) / 3) + 1)
         lines = [{"ts": t0 + i * 3, "speaker": s, "app": app or "", "text": txt} for i, (s, app, txt) in
                  enumerate(DEMO[:n])]
+        if a.scenario == "call":
+            return {"state": state["s"], "apps": ["Zoom"] if state["s"] != "stopped" else [], "error": None,
+                    "now": time.time(), "started_at": t0, "bundle_ids": ["us.zoom.xos"] if state["s"] != "stopped" else [],
+                    "call_prompt": True, "session_lines": 40, "session_minutes": 7.5}
         return {"state": state["s"], "apps": ["FaceTime"], "error": None, "now": time.time(), "started_at": t0 - 65,
                 "lines": lines, "session_lines": 40, "session_minutes": 7.5}
 
@@ -62,7 +75,15 @@ def main() -> int:
     app.setActivationPolicy_(1)
     app.finishLaunching()
     panel = RecorderPanel(client)
-    panel.show()
+    if a.scenario == "call":
+        state["s"] = "stopped"
+        try:
+            from helper.call_watch import CoreAudioInputs
+            log.info("mic inputs now: %s", CoreAudioInputs()())
+        except Exception as e:
+            log.info("CoreAudioInputs failed: %r", e)
+    else:
+        panel.show()
     asked = False
     steps = []
     if a.scenario == "notes":
@@ -71,6 +92,11 @@ def main() -> int:
                  (10, "document.getElementById('stop').click()"), (13, "shot:offer"),
                  (13.5, "document.querySelector('.note .btn.primary').click()"), (14.2, "shot:saving"),
                  (17, "shot:saved")]
+    elif a.scenario == "call":
+        steps = [(2, "py:panel.on_call('start', 'us.zoom.xos')"), (5, "shot:call-offer"),
+                 (5.5, "document.querySelector('.note.call .btn.primary').click()"), (8, "shot:call-recording"),
+                 (8.5, "py:panel.on_call('end', 'us.zoom.xos')"), (11, "shot:call-ended"),
+                 (11.5, "document.querySelector('.note.call .btn.primary').click()"), (15, "shot:call-notes")]
     elif a.scenario == "down":
         steps = [(4, "shot:down")]
 
@@ -84,7 +110,12 @@ def main() -> int:
     while time.time() - t0 < a.seconds:
         while steps and time.time() - t0 >= steps[0][0]:
             _, act = steps.pop(0)
-            shot(act[5:]) if act.startswith("shot:") else panel._js(act)
+            if act.startswith("shot:"):
+                shot(act[5:])
+            elif act.startswith("py:"):
+                eval(act[3:])
+            else:
+                panel._js(act)
         ev = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
             NSEventMaskAny, NSDate.dateWithTimeIntervalSinceNow_(0.5), NSDefaultRunLoopMode, True)
         if ev is not None:

@@ -75,6 +75,13 @@ def run(combo: str, data_dir: str) -> int:
         panel = RecorderPanel(client)
     except Exception as e:  # WebKit missing: keep the plain toggle
         log.warning("recorder panel unavailable (%s); the hotkey only toggles capture", e)
+    if panel is not None:  # offer to record calls when they start (helper/call_watch.py; offers only)
+        try:
+            from PyObjCTools import AppHelper
+            from helper.call_watch import CallWatcher
+            CallWatcher(lambda kind, app: AppHelper.callAfter(panel.on_call, kind, app)).start()
+        except Exception as e:
+            log.warning("call detection unavailable: %s", e)
 
     def summon() -> None:  # worker thread: start capture if it's off; the panel is already showing
         if not busy.acquire(blocking=False):

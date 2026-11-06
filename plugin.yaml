@@ -19,6 +19,7 @@ config_schema:
   capture_snapshots: {type: bool, default: false, label: "Capture low-rate snapshots (RAM only)"}
   autostart: {type: bool, default: false, label: "Start capture on the first recorder tool call"}
   notes_dir: {type: str, default: "~/Documents/Hermes Notes", label: "Notes folder", description: "Where Save notes writes markdown files"}
+  call_prompt: {type: bool, default: true, label: "Offer to record calls", description: "When a call starts (Zoom, Meet, FaceTime, Teams…), the recorder panel asks whether to record it. Needs the hotkey login item."}
   hotkey: {type: str, default: "ctrl+opt+r", label: "Recording hotkey", description: "Global start/stop shortcut, e.g. ctrl+opt+r. Installed by `hermes recorder setup` (opt-in); re-run setup after changing it."}
 provides_tools: [screen_recall, recorder_status, recorder_control, recorder_draft_skill, recorder_save_notes, recorder_notes]
 provides_hooks: [pre_llm_call, on_session_end, pre_gateway_dispatch]

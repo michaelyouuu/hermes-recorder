@@ -21,7 +21,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS: dict[str, Any] = {
     "apps": [], "buffer_minutes": 90, "whisper_model": "base.en", "capture_mic": True,
     "capture_events": False, "capture_snapshots": False, "autostart": False, "hotkey": "ctrl+opt+r",
-    "notes_dir": "~/Documents/Hermes Notes",
+    "notes_dir": "~/Documents/Hermes Notes", "call_prompt": True,
 }
 APP_NAMES = {
     "com.google.Chrome": "Google Chrome", "com.microsoft.edgemac": "Microsoft Edge", "com.apple.Safari": "Safari",
@@ -293,6 +293,15 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             rec.resume()
         elif op == "feed":
             return {**_brief(rec), **_feed(rec, args.get("since"))}
+        elif op == "record_call":  # the panel's "Record this call?": start, or add the app to what's running
+            if rec.manager.state in ("running", "paused", "starting"):
+                if apps and not set(resolve_apps(apps)) <= set(rec.manager.apps):
+                    rec.set_apps(list(rec.manager.apps) + resolve_apps(apps))
+                if rec.manager.state == "paused":
+                    rec.resume()
+            else:
+                rec.start(apps)
+                started = True
         elif op == "diag":  # `hermes recorder check`: streams and lines per source since `since`
             st = rec.status()
             try:
@@ -314,7 +323,7 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
     except LaunchError as e:
         return {**_brief(rec), "error": str(e), "started": False}
     out = _brief(rec)
-    if op == "summon":
+    if op in ("summon", "record_call"):
         out["started"] = started
     return out
 
@@ -337,6 +346,7 @@ def _brief(rec: Recorder) -> dict[str, Any]:
     session = [e for e in rec.buffer.slice(last, time.time() + 1, ("transcript",))] if last else []
     return {"state": st["state"], "apps": [a["name"] for a in st["apps"]], "error": st["error"],
             "minutes_available": st["buffer"]["minutes_available"], "started_at": rec.started_at,
+            "bundle_ids": list(rec.manager.apps), "call_prompt": bool(config("call_prompt")),
             "session_lines": len(session),
             "session_minutes": round((session[-1].ts - session[0].ts) / 60, 1) if session else 0,
             "now": time.time()}

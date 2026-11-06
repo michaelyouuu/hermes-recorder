@@ -48,6 +48,12 @@
   .note .row { display: flex; gap: 6px; margin-top: 8px; }
   .note .row .btn.primary { background: var(--accent); color: #fff; }
   .note.err .s { color: var(--rec); }
+  .note.call { border-color: rgba(255,69,58,.35); }
+  .note .s + .k { margin-top: 8px; }
+  .note ul { margin: 6px 0 0; padding: 0; list-style: none; }
+  .note li { color: var(--fg); padding: 2px 0 2px 18px; position: relative; }
+  .note li::before { content: '☐'; position: absolute; left: 0; color: var(--fg3); }
+  .note li .who { color: var(--fg3); }
 
   #answers { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 2px; overflow-y: auto;
     border-top: 1px solid var(--line); }
@@ -159,7 +165,19 @@
     saving = false; card.textContent = '';
     if (r.error) { card.classList.add('err'); card.append(el('div', 'k', 'Notes not saved'), el('div', 's', r.error)); }
     else {
-      card.append(el('div', 'k', 'Notes saved'), el('div', 't', r.title || 'Notes'), el('div', 's', r.summary || ''));
+      card.append(el('div', 'k', r.kind === 'meeting' ? 'Meeting notes saved' : 'Notes saved'),
+                  el('div', 't', r.title || 'Notes'), el('div', 's', r.summary || ''));
+      const acts = r.action_items || [];
+      if (acts.length) {
+        const ul = el('ul');
+        for (const a of acts.slice(0, 6)) {
+          const li = el('li', '', a.task);
+          const who = [a.owner, a.due].filter(Boolean).join(' · ');
+          if (who) li.append(el('span', 'who', ' — ' + who));
+          ul.append(li);
+        }
+        card.append(el('div', 'k', 'Action items'), ul);
+      }
       const row = el('div', 'row');
       row.append(button('Show in Finder', '', () => post('reveal', { path: r.path })));
       card.append(row);
@@ -263,8 +281,26 @@
   $('notes').onclick = saveNotes;
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); post('hide'); } });
 
+  function callCard(kind, info) {
+    for (const old of box.querySelectorAll('.note.call')) old.remove();
+    const card = el('div', 'note call'), row = el('div', 'row');
+    if (kind === 'start') {
+      card.append(el('div', 'k', 'Call detected'),
+                  el('div', 's', info.app + ' call. Record it? The audio stays on your Mac; you can ask about it and save meeting notes.'));
+      row.append(button('Record call', 'primary', () => { card.remove(); post('recordCall', { bid: info.bid }); }),
+                 button('Not now', '', () => card.remove()));
+    } else {
+      card.append(el('div', 'k', 'Call ended'), el('div', 's', 'Stop recording ' + info.app + ' and save meeting notes?'));
+      row.append(button('Stop & save notes', 'primary', () => { card.remove(); offered = true; post('stop'); saveNotes(); }),
+                 button('Keep recording', '', () => card.remove()));
+    }
+    card.append(row); box.appendChild(card); showEmpty(); scrollEnd();
+  }
+
   window.rec = {
     status: setState,
+    offerCall(info) { callCard('start', info); },
+    callEnded(info) { callCard('end', info); },
     reply(id, r) {
       const p = pending[id]; if (!p) return; delete pending[id];
       if (p.notes) return notesDone(p.notes, r);
