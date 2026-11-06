@@ -38,16 +38,36 @@ NOTE_SCHEMA = {
             "type": "object",
             "properties": {"heading": {"type": "string"}, "text": {"type": "string"}},
             "required": ["heading", "text"], "additionalProperties": False}},
-        "action_items": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "action_items": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"task": {"type": "string"},
+                           "owner": {"type": "string", "description": "Who does it: a name, 'you' (the user), or ''"},
+                           "due": {"type": "string", "description": "When, as said ('Friday', 'Nov 14'), or ''"}},
+            "required": ["task", "owner", "due"], "additionalProperties": False}},
         "open_questions": {"type": "array", "items": {"type": "string"}},
         "tags": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["title", "summary", "key_points", "details", "action_items", "open_questions", "tags"],
+    "required": ["title", "summary", "key_points", "details", "decisions", "action_items", "open_questions", "tags"],
     "additionalProperties": False,  # strict structured-output APIs (Anthropic) require it on every object
 }
 
+# Apps whose audio is a call: a session with any of them gets meeting notes.
+CALL_APPS = frozenset({"us.zoom.xos", "com.apple.FaceTime", "com.apple.mobilephone", "com.microsoft.teams2",
+                       "com.tinyspeck.slackmacgap", "com.hnc.Discord", "Cisco-Systems.Spark", "net.whatsapp.WhatsApp",
+                       "org.whispersystems.signal-desktop"})
+
+MEETING = (
+    "This was a meeting or call. Write meeting notes someone can act on: put every decision in 'decisions', and every "
+    "commitment or request in 'action_items' with its owner (a name as said, 'you' for the user speaking into the "
+    "microphone, or '' if unclear) and due date as said ('Friday', 'next sprint', or ''). Key points and details "
+    "cover the discussion itself.\n")
+MEDIA = (
+    "This was a video, lecture, podcast or stream. Write study notes: key points and details carry the content; "
+    "decisions and action_items are usually empty (fill action_items only for things the user said they'd do).\n")
+
 INSTRUCTIONS = (
-    "Write study notes from an automatic transcript of what the user watched, listened to or discussed on their Mac. "
+    "Write notes from an automatic transcript of what the user watched, listened to or discussed on their Mac. "
     "Each line is '[time ago] source: text'; the source is an app (a video, podcast, the other people on a call), "
     "'you (microphone)' for the user, or 'summary' for a condensed older stretch.\n"
     "- title: specific (the topic, not 'Notes'), at most 80 characters.\n"
@@ -55,7 +75,8 @@ INSTRUCTIONS = (
     "- key_points: 3 to 8 short, self-contained statements of the most important ideas, facts, numbers or decisions.\n"
     "- details: 1 to 6 sections with a heading and a few plain sentences each (explanations, definitions, examples, "
     "steps), in the order they came up.\n"
-    "- action_items: things someone agreed or needs to do (empty if none). open_questions: things left unclear.\n"
+    "- decisions: what was agreed. action_items: {task, owner, due}. open_questions: things left unclear. Each may "
+    "be empty.\n"
     "- tags: 2 to 6 lowercase topic words.\n"
     "Plain text inside fields, no markdown. Quietly fix obvious mishearings. Don't invent anything that isn't in the "
     "transcript, and don't mention the transcript, timestamps or its quality.")
@@ -104,11 +125,35 @@ def _items(v: Any, limit: int = 20) -> list[str]:
     return [t for t in (_clean(x, 600) for x in (v if isinstance(v, list) else [])[:limit]) if t]
 
 
+def is_meeting(entries: list) -> bool:
+    """A call app took part, or the user talked a fair share (e.g. Google Meet in a browser)."""
+    if any(e.app in CALL_APPS for e in entries):
+        return True
+    mine = sum(1 for e in entries if e.speaker == "me")
+    return mine >= 3 and mine >= 0.15 * len(entries)
+
+
+def action_items(v: Any) -> list[dict[str, str]]:
+    out = []
+    for a in (v if isinstance(v, list) else [])[:30]:
+        if isinstance(a, str):
+            a = {"task": a}
+        if isinstance(a, dict) and _clean(a.get("task")):
+            out.append({k: _clean(a.get(k), 300) for k in ("task", "owner", "due")})
+    return out
+
+
+def _action_line(a: dict[str, str]) -> str:
+    extra = ", ".join(x for x in (f"owner: {a['owner']}" if a["owner"] else "",
+                                   f"due: {a['due']}" if a["due"] else "") if x)
+    return f"- [ ] {a['task']}" + (f" ({extra})" if extra else "")
+
+
 def _yaml_str(s: str) -> str:
     return json.dumps(s, ensure_ascii=False)  # JSON strings are valid YAML scalars
 
 
-def render(note: dict[str, Any], *, started: float, ended: float, sources: list[str]) -> str:
+def render(note: dict[str, Any], *, started: float, ended: float, sources: list[str], kind: str = "media") -> str:
     title = _clean(note.get("title"), 120) or "Notes"
     tags = [re.sub(r"[^\w-]", "", t.lower().replace(" ", "-")) for t in _items(note.get("tags"), 8)]
     tags = [t for t in tags if t]
@@ -120,22 +165,30 @@ def render(note: dict[str, Any], *, started: float, ended: float, sources: list[
         f"sources: [{', '.join(_yaml_str(s) for s in sources)}]",
         f"duration_min: {max(1, round((ended - started) / 60))}",
         f"tags: [{', '.join(tags)}]",
+        f"kind: {kind}",
         f"generator: {GENERATOR}",
         "---",
     ]
     out = fm + ["", f"# {title}", "", _clean(note.get("summary"), 4000) or "(no summary)", ""]
-    kp = _items(note.get("key_points"))
+    decisions, actions = _items(note.get("decisions")), action_items(note.get("action_items"))
+    questions, kp = _items(note.get("open_questions")), _items(note.get("key_points"))
+    sections: list[tuple[str, list[str]]] = []
+    content: list[str] = []
     if kp:
-        out += ["## Key points", "", *[f"- {t}" for t in kp], ""]
-    details = [d for d in (note.get("details") or []) if isinstance(d, dict)][:8]
-    for d in details:
+        content += ["## Key points", "", *[f"- {t}" for t in kp], ""]
+    for d in [d for d in (note.get("details") or []) if isinstance(d, dict)][:8]:
         h, t = _clean(d.get("heading"), 120), _clean(d.get("text"), 4000)
         if h and t:
-            out += [f"## {h}", "", t, ""]
-    for heading, key in (("Action items", "action_items"), ("Open questions", "open_questions")):
-        items = _items(note.get(key))
-        if items:
-            out += [f"## {heading}", "", *[f"- {t}" for t in items], ""]
+            content += [f"## {h}", "", t, ""]
+    if decisions:
+        sections.append(("Decisions", [f"- {t}" for t in decisions]))
+    if actions:
+        sections.append(("Action items", [_action_line(a) for a in actions]))
+    if questions:
+        sections.append(("Open questions", [f"- {t}" for t in questions]))
+    actionable = [x for h, items in sections for x in [f"## {h}", "", *items, ""]]
+    # meetings lead with what to do; study notes lead with the content
+    out += actionable + content if kind == "meeting" else content + actionable
     out += ["---", f"*Saved by hermes-recorder from {', '.join(sources) or 'recorded audio'} on "
                    f"{when.strftime('%b %-d, %Y at %-I:%M %p')}. Generated from a transcript; check anything important.*",
             ""]
@@ -165,16 +218,17 @@ def save(minutes: Any = None, title_hint: str | None = None, rec: Any = None, ll
         runner = runner or runtime.run_in_turn_context
         lines, dnote = digest.build(entries, BUDGET, now, llm=llm, runner=runner)
         from .ask import _format
+        kind = "meeting" if is_meeting(entries) else "media"
         hint = f"\nThe user describes it as: {_clean(title_hint, 200)}" if title_hint else ""
         text = f"Transcript ({minutes:.0f} min){' — ' + dnote if dnote else ''}:{hint}\n{_format(lines)}"
-        res = runner(llm.complete_structured, instructions=INSTRUCTIONS, input=[{"type": "text", "text": text}],
+        res = runner(llm.complete_structured, instructions=(MEETING if kind == "meeting" else MEDIA) + INSTRUCTIONS, input=[{"type": "text", "text": text}],
                      json_schema=NOTE_SCHEMA, max_tokens=2000, timeout=150,
                      purpose="hermes-recorder: write notes from a recording")
         note = getattr(res, "parsed", None)
         if not isinstance(note, dict):
             return {"error": "The model didn't return notes in the expected shape; try again."}
         sources = sorted({"You" if e.speaker == "me" else runtime.app_name(e.app) for e in entries})
-        md = render(note, started=entries[0].ts, ended=entries[-1].ts, sources=sources)
+        md = render(note, started=entries[0].ts, ended=entries[-1].ts, sources=sources, kind=kind)
         d, moved = _writable_dir()
         stem = f"{datetime.fromtimestamp(entries[0].ts).strftime('%Y-%m-%d %H%M')} {_slug(_clean(note.get('title'), 120))}"
         path = _unique(d, stem)
@@ -185,7 +239,8 @@ def save(minutes: Any = None, title_hint: str | None = None, rec: Any = None, ll
         os.link(tmp, path)  # fails instead of overwriting if the name was just taken
         tmp.unlink()
         out = {"path": str(path), "title": _clean(note.get("title"), 120), "summary": _clean(note.get("summary"), 600),
-               "minutes": round(minutes, 1), "seconds": round(time.time() - t0, 1)}
+               "minutes": round(minutes, 1), "seconds": round(time.time() - t0, 1), "kind": kind,
+               "decisions": _items(note.get("decisions")), "action_items": action_items(note.get("action_items"))}
         if moved:
             out["note"] = moved
         log.info("hermes-recorder: saved notes (%d lines, %.1fs)", len(entries), out["seconds"])
@@ -229,7 +284,8 @@ def _parse(path: Path) -> dict[str, Any] | None:
     body = text[m.end():]
     summary = next((p.strip() for p in body.split("\n\n") if p.strip() and not p.lstrip().startswith("#")), "")
     return {"title": meta.get("title") or path.stem, "date": meta.get("date", ""), "sources": meta.get("sources", []),
-            "tags": meta.get("tags", []), "summary": summary[:600], "path": str(path), "body": body}
+            "tags": meta.get("tags", []), "kind": meta.get("kind", "media"), "summary": summary[:600],
+            "path": str(path), "body": body}
 
 
 def _inside(p: Path, d: Path) -> bool:
@@ -286,7 +342,7 @@ def search(query: str = "", days: Any = 30, limit: int = 10) -> dict[str, Any]:
         scored.append((score, n))
     scored.sort(key=lambda x: x[0], reverse=True)  # stable: newest first among equal scores
     hits = [n for _, n in scored[:max(1, int(limit))]]
-    out: dict[str, Any] = {"notes": [{k: n[k] for k in ("title", "date", "sources", "tags", "summary", "path")}
+    out: dict[str, Any] = {"notes": [{k: n[k] for k in ("title", "date", "kind", "sources", "tags", "summary", "path")}
                                      for n in hits],
                            "folder": str(notes_dir())}
     if len(hits) == 1:

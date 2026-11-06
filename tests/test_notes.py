@@ -132,3 +132,36 @@ def test_tools_and_command_never_raise(ctx, monkeypatch):
     assert commands.recorder("notes abc").startswith("Usage")
     monkeypatch.setattr(runtime, "get", lambda: 1 / 0)
     assert "ZeroDivisionError" in json.loads(ctx.tools["recorder_save_notes"]({}))["error"]
+
+
+MEETING_NOTE = dict(NOTE, title="Q3 launch sync", summary="We set the launch plan.",
+                    decisions=["Launch moves to Nov 20"],
+                    action_items=[{"task": "File the onboarding bug in Linear", "owner": "you", "due": "Friday"},
+                                  {"task": "Send pricing deck", "owner": "Sam", "due": ""}, "Book the venue"],
+                    open_questions=[])
+
+
+def test_calls_get_meeting_notes_that_lead_with_actions(ctx, tmp_path):
+    b = RingBuffer(90)
+    now = time.time()
+    for i in range(6):
+        b.add(Entry("transcript", now - 100 + i * 10, "us.zoom.xos", "them", f"item {i}: let's ship"))
+    rec = type("R", (), {"buffer": b, "started_at": now - 110, "last_started_at": now - 110})()
+    llm = LLM(MEETING_NOTE)
+    r = notes.save(None, rec=rec, llm=llm, runner=run)
+    assert r["kind"] == "meeting" and "meeting or call" in llm.calls[0]["instructions"]
+    assert r["action_items"][0] == {"task": "File the onboarding bug in Linear", "owner": "you", "due": "Friday"}
+    assert r["action_items"][2] == {"task": "Book the venue", "owner": "", "due": ""}
+    text = open(r["path"]).read()
+    assert "kind: meeting" in text
+    assert text.index("## Decisions") < text.index("## Action items") < text.index("## Key points")
+    assert "- [ ] File the onboarding bug in Linear (owner: you, due: Friday)" in text
+    assert "- [ ] Send pricing deck (owner: Sam)" in text
+    assert notes.search("onboarding bug")["notes"][0]["kind"] == "meeting"
+
+
+def test_meeting_detection():
+    e = lambda app, sp: Entry("transcript", 0, app, sp, "x")
+    assert notes.is_meeting([e("com.apple.FaceTime", "them")])
+    assert notes.is_meeting([e("com.google.Chrome", "them")] * 10 + [e(None, "me")] * 3)  # Meet in a browser
+    assert not notes.is_meeting([e("com.google.Chrome", "them")] * 30 + [e(None, "me")] * 3)  # a video
