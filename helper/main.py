@@ -42,15 +42,18 @@ class Helper:
         self.send_lock = threading.Lock()
         self.stop_ev = threading.Event()
         self.paused = False
-        self.windows = {}
-        self.first = {1: True, 2: True}
+        self.windows = {}   # (kind, app) -> Windower; app is None for the mixed SCK stream
+        self.first = {}     # (kind, app) -> next window is the stream's first
         self.q: queue.Queue = queue.Queue(QUEUE_MAX)
         self.echo = EchoFilter()
         self.counters = {"windows": 0, "silent": 0, "dropped_backpressure": 0, "lines": 0, "filtered": 0}
-        # per-stream audio actually received from ScreenCaptureKit (1 = app audio, 2 = mic)
-        self.streams = {1: {"samples": 0, "peak": 0.0, "rate": None}, 2: {"samples": 0, "peak": 0.0, "rate": None}}
+        # audio actually received per stream: "mic", "app" (mixed SCK stream) or a tapped app's bundle id
+        self.streams: dict[str, dict] = {}
         self.capturing: list[str] = []
+        self.sck_capturing: list[str] = []
+        self.audio_path: dict[str, str] = {}  # bundle id -> "tap" | "sck"
         self.capture = None
+        self.taps = None
         self.fatal: str | None = None
 
     # ------------------------------------------------------------------ socket
@@ -77,28 +80,30 @@ class Helper:
         self.stop_ev.set()  # socket closed: the plugin is gone, so exit
 
     # ------------------------------------------------------------------ audio path
-    def on_audio(self, kind: int, x, rate: float) -> None:
+    def on_audio(self, kind: int, x, rate: float, app: str | None = None) -> None:
+        """kind 1 = app audio ("them"), 2 = mic ("me"). ``app`` is set for per-app (tapped) streams."""
         if self.paused or self.stop_ev.is_set():
             return
-        st = self.streams.get(kind)
-        if st is not None:
-            st["samples"] += len(x)
-            st["rate"] = rate
-            if len(x):
-                st["peak"] = max(st["peak"], float(abs(x).max()))
-        w = self.windows.get(kind)
+        key = (kind, app)
+        st = self.streams.setdefault("mic" if kind == 2 else (app or "app"),
+                                     {"samples": 0, "peak": 0.0, "rate": None})
+        st["samples"] += len(x)
+        st["rate"] = rate
+        if len(x):
+            st["peak"] = max(st["peak"], float(abs(x).max()))
+        w = self.windows.get(key)
         if w is None or w.rate != rate:
-            w = self.windows[kind] = dsp.Windower(rate)
+            w = self.windows[key] = dsp.Windower(rate)
         for _, win in w.push(x):
             if rate != dsp.TARGET_RATE:
                 win = dsp.resample(win, rate)
             self.counters["windows"] += 1
+            first = self.first.get(key, True)
+            self.first[key] = False
             if dsp.rms(win) < SILENCE_RMS:
                 self.counters["silent"] += 1
-                self.first[kind] = False
                 continue
-            item = (kind, time.time(), win, self.first[kind])
-            self.first[kind] = False
+            item = (kind, app, time.time(), win, first)
             try:
                 self.q.put_nowait(item)
             except queue.Full:
@@ -110,7 +115,7 @@ class Helper:
                 self.q.put_nowait(item)
 
     def attribute_app(self) -> str | None:
-        """SCK mixes the chosen apps into one stream; attribute lines to the frontmost captured app."""
+        """The SCK stream mixes its apps; attribute its lines (and mic lines) to the frontmost captured app."""
         if len(self.capturing) == 1:
             return self.capturing[0]
         try:
@@ -136,7 +141,7 @@ class Helper:
         self.log.info("model loaded: %s", self.a.model)
         while not self.stop_ev.is_set():
             try:
-                kind, ts, win, first = self.q.get(timeout=0.5)
+                kind, src_app, ts, win, first = self.q.get(timeout=0.5)
             except queue.Empty:
                 continue
             t0 = time.time()
@@ -155,52 +160,81 @@ class Helper:
             elif self.echo.is_echo(ts, text):
                 self.counters["filtered"] += 1
                 continue
-            app = self.attribute_app()
+            app = src_app or self.attribute_app()
             if app is None:
                 continue
             self.send("transcript", app=app, speaker=speaker, text=text, proc_s=round(time.time() - t0, 3))
             self.counters["lines"] += 1
 
     # ------------------------------------------------------------------ control
+    def split_apps(self) -> tuple[list[str], list[str]]:
+        """(tap apps, ScreenCaptureKit apps). Taps need macOS 14.2+; Safari's audio can't be attributed to it."""
+        from helper.capture_tap import taps_supported
+        from helper.proc_match import SCK_ONLY
+        tap_ok = taps_supported()
+        taps = [b for b in self.apps if tap_ok and b not in SCK_ONLY]
+        return taps, [b for b in self.apps if b not in taps]
+
+    def apply_apps(self) -> None:
+        """Bring both capture paths in line with self.apps and recompute what is being captured."""
+        tap_apps, sck_apps = self.split_apps()
+        self.sck_capturing = self.capture.update_apps(sck_apps) if self.capture else []
+        tapped = self.taps.update_apps(tap_apps) if self.taps else []
+        self.audio_path = {**{b: "tap" for b in tap_apps}, **{b: "sck" for b in sck_apps}}
+        self.capturing = [b for b in self.apps if b in tapped or b in self.sck_capturing]
+
     def start_capture(self) -> None:
         from helper.capture_audio import AudioCapture
+        from helper.capture_tap import TapCapture
         if self.capture is None:
             self.capture = AudioCapture(self.on_audio, mic=bool(int(self.a.mic)))
+        if self.taps is None:
+            self.taps = TapCapture(self.on_audio)
+        tap_apps, sck_apps = self.split_apps()
         try:
-            self.capturing = self.capture.start(self.apps)
+            self.sck_capturing = self.capture.start(sck_apps)
         except PermissionError as e:
             self.fatal = (f"Screen & System Audio Recording isn't allowed for Hermes Recorder Helper ({e}). "
                           "Run `hermes recorder doctor` for the fix.")
             self.send("error", message=self.fatal)
             return
+        tapped = self.taps.start(tap_apps)
+        self.audio_path = {**{b: "tap" for b in tap_apps}, **{b: "sck" for b in sck_apps}}
+        self.capturing = [b for b in self.apps if b in tapped or b in self.sck_capturing]
         self.windows.clear()
-        self.first = {1: True, 2: True}
-        self.log.info("capturing %s (mic=%s)", self.capturing, self.capture.mic)
+        self.first.clear()
+        self.log.info("capturing %s (mic=%s, audio_path=%s)", self.capturing, self.capture.mic, self.audio_path)
+
+    def stop_capture(self) -> None:
+        if self.capture:
+            self.capture.stop()  # turns the macOS recording indicator off
+        if self.taps:
+            self.taps.stop()
+        self.capturing = []
+        self.sck_capturing = []
 
     def handle(self, msg: dict) -> None:
         op = msg.get("op")
         self.log.info("control %s", op)
         if op == "pause" and not self.paused:
             self.paused = True
-            if self.capture:
-                self.capture.stop()  # turns the macOS recording indicator off
-            self.capturing = []
+            self.stop_capture()
         elif op == "resume" and self.paused:
             self.paused = False
             self.start_capture()
         elif op == "set_apps":
             self.apps = [str(x) for x in msg.get("apps") or []]
             if not self.paused and self.capture is not None:
-                self.capturing = self.capture.update_apps(self.apps)
+                self.apply_apps()
         elif op == "stop":
             self.stop_ev.set()
 
     def status(self) -> None:
         r = resource.getrusage(resource.RUSAGE_SELF)
         missing = [a for a in self.apps if a not in self.capturing]
-        streams = {("app" if k == 1 else "mic"): {"seconds": round(v["samples"] / v["rate"], 1) if v["rate"] else 0.0,
-                                                  "peak": round(v["peak"], 4)} for k, v in self.streams.items()}
-        fields = dict(capturing=self.capturing, missing_apps=missing, paused=self.paused,
+        streams = {k: {"seconds": round(v["samples"] / v["rate"], 1) if v["rate"] else 0.0,
+                       "peak": round(v["peak"], 4)} for k, v in self.streams.items()}
+        fields = dict(capturing=self.capturing, missing_apps=missing, paused=self.paused, audio_path=self.audio_path,
                       mic=bool(self.capture and self.capture.mic), counters=dict(self.counters), streams=streams,
                       cpu_s=round(r.ru_utime + r.ru_stime, 1), rss_mb=round(r.ru_maxrss / 1048576, 1))
         self.send("status", **fields)
@@ -224,19 +258,23 @@ class Helper:
             while not self.controls.empty():
                 self.handle(self.controls.get_nowait())
             now = time.time()
-            if (not self.fatal and not self.paused and now - last_retry > RETRY_APPS_S
-                    and set(self.capturing) != set(self.apps)):
-                last_retry = now
+            if self.taps is not None and self.taps.changed.is_set():
+                last_retry = 0.0  # a process started or stopped using audio: re-resolve taps now
+                self.taps.changed.clear()
+            if not self.fatal and not self.paused and now - last_retry > RETRY_APPS_S and self.capture:
+                last_retry = now  # re-resolve tapped processes (calls start, helpers spawn) and retry missing apps
                 try:
-                    self.capturing = (self.capture.update_apps(self.apps) if self.capture
-                                      else self.capturing)
+                    if set(self.capturing) != set(self.apps):
+                        self.apply_apps()
+                    elif self.taps:
+                        tapped = self.taps.refresh()
+                        self.capturing = [b for b in self.apps if b in tapped or b in self.sck_capturing]
                 except Exception as e:
                     self.log.warning("app retry failed: %s", e)
             if now - last_status > STATUS_EVERY_S:
                 last_status = now
                 self.status()
-        if self.capture:
-            self.capture.stop()
+        self.stop_capture()
         try:
             self.sock.close()
         except OSError:

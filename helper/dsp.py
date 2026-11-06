@@ -63,3 +63,13 @@ class Windower:
             self._buf = self._buf[drop:]
             self._buf_start += drop
         return out
+
+
+def downmix(raw: bytes, channels: int) -> np.ndarray:
+    """Interleaved float32 PCM bytes -> mono float32 (mean of channels). Drops a trailing partial frame."""
+    x = np.frombuffer(raw, dtype=np.float32)
+    ch = max(1, int(channels))
+    if ch == 1:
+        return x.copy()
+    n = len(x) // ch * ch
+    return x[:n].reshape(-1, ch).mean(axis=1).astype(np.float32)

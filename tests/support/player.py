@@ -1,6 +1,6 @@
 """Test-only audio player run inside a generated .app, so ScreenCaptureKit can capture it as an app.
 
-  player.py FILE [--volume 0.2]
+  player.py FILE [--volume 0.2] [--no-window]
 """
 from __future__ import annotations
 
@@ -18,13 +18,15 @@ if __name__ == "__main__":
     ap.add_argument("file")
     ap.add_argument("--volume", type=float, default=0.2)
     ap.add_argument("--delay", type=float, default=1.5)
+    ap.add_argument("--no-window", action="store_true", help="play without a window (like avconferenced)")
     a = ap.parse_args()
-    # ScreenCaptureKit only lists apps that own a window, so open a 1x1 off-screen one.
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(1)  # accessory: no Dock icon
-    win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(-200, -200, 1, 1), 0, NSBackingStoreBuffered, False)
-    win.orderFrontRegardless()
+    if not a.no_window:
+        # ScreenCaptureKit only lists apps that own a window, so open a 1x1 off-screen one.
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(-200, -200, 1, 1), 0, NSBackingStoreBuffered, False)
+        win.orderFrontRegardless()
     time.sleep(a.delay)  # give the recorder time to refilter after this app appears
     p, err = AVAudioPlayer.alloc().initWithContentsOfURL_error_(NSURL.fileURLWithPath_(a.file), None)
     if p is None:

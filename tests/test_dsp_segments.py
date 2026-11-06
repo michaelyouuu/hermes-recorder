@@ -68,3 +68,16 @@ def test_echo_filter_drops_speaker_bleed_only():
     assert not f.is_echo(102.0, "I think we should ship on Thursday")
     assert not f.is_echo(120.0, "this is computer code almost for these pages")  # too far apart
     assert not f.is_echo(101.0, "this is")  # too short to judge
+
+
+def test_downmix_interleaved_stereo():
+    left = np.array([1.0, 0.0, 0.5], np.float32)
+    right = np.array([0.0, 1.0, 0.5], np.float32)
+    raw = np.stack([left, right], axis=1).reshape(-1).tobytes()
+    assert np.allclose(dsp.downmix(raw, 2), [0.5, 0.5, 0.5])
+
+
+def test_downmix_mono_and_partial_frame():
+    raw = np.array([0.1, 0.2, 0.3], np.float32).tobytes()
+    assert np.allclose(dsp.downmix(raw, 1), [0.1, 0.2, 0.3])
+    assert len(dsp.downmix(raw, 2)) == 1

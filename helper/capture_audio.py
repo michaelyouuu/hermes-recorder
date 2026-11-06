@@ -1,4 +1,4 @@
-"""ScreenCaptureKit audio capture: chosen apps' audio (16 kHz mono) plus, on macOS 15+, the microphone.
+"""ScreenCaptureKit audio capture: the microphone (macOS 15+) plus apps that can't use a process tap.
 
 Callbacks arrive on ScreenCaptureKit's queues; ``on_audio(kind, samples, rate)`` must be quick.
 kind 1 = app audio ("them"), 2 = microphone ("me").
@@ -102,30 +102,39 @@ def mic_supported() -> bool:
 
 
 class AudioCapture:
+    """SCK stream for the microphone plus any apps that can't use a process tap (Safari, macOS < 14.2).
+
+    With no SCK apps it runs mic-only (``capturesAudio`` off, whole-display filter, 2x2 frames ignored).
+    """
+
     def __init__(self, on_audio: Callable[[int, np.ndarray, float], None], mic: bool):
         self.on_audio = on_audio
         self.mic = mic and mic_supported()
         self.stream = None
         self._out = _Output.alloc().initWithHandler_(on_audio)
         self.capturing: list[str] = []
+        self._app_audio = False
 
     def _filter(self, bundle_ids: list[str]):
+        """(filter, captures_app_audio) or (None, False) when there is nothing to capture."""
         apps = shareable_apps()
         chosen = [apps[b] for b in bundle_ids if b in apps]
         self.capturing = [b for b in bundle_ids if b in apps]
-        if not chosen:
-            return None
-        return SCK.SCContentFilter.alloc().initWithDisplay_includingApplications_exceptingWindows_(
-            apps[""], chosen, [])
+        if chosen:
+            return SCK.SCContentFilter.alloc().initWithDisplay_includingApplications_exceptingWindows_(
+                apps[""], chosen, []), True
+        if self.mic:
+            return SCK.SCContentFilter.alloc().initWithDisplay_excludingWindows_(apps[""], []), False
+        return None, False
 
     def start(self, bundle_ids: list[str]) -> list[str]:
         """Start capturing; returns the bundle ids that are running and captured (may be empty)."""
         self.stop()
-        filt = self._filter(bundle_ids)
+        filt, app_audio = self._filter(bundle_ids)
         if filt is None:
             return []
         cfg = SCK.SCStreamConfiguration.alloc().init()
-        cfg.setCapturesAudio_(True)
+        cfg.setCapturesAudio_(app_audio)
         cfg.setExcludesCurrentProcessAudio_(True)
         cfg.setSampleRate_(16000)
         cfg.setChannelCount_(1)
@@ -135,7 +144,8 @@ class AudioCapture:
         if self.mic:
             cfg.setCaptureMicrophone_(True)
         stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(filt, cfg, None)
-        for t in ([APP_AUDIO, MIC] if self.mic else [APP_AUDIO]):
+        kinds = ([APP_AUDIO] if app_audio else []) + ([MIC] if self.mic else [])
+        for t in kinds:
             ok, err = stream.addStreamOutput_type_sampleHandlerQueue_error_(self._out, t, None, None)
             if not ok:
                 raise RuntimeError(f"addStreamOutput({t}) failed: {err}")
@@ -145,15 +155,18 @@ class AudioCapture:
         if err is not None:
             raise RuntimeError(f"startCapture failed: {err.localizedDescription()}")
         self.stream = stream
+        self._app_audio = app_audio
         return list(self.capturing)
 
     def update_apps(self, bundle_ids: list[str]) -> list[str]:
         if self.stream is None:
             return self.start(bundle_ids)
-        filt = self._filter(bundle_ids)
+        filt, app_audio = self._filter(bundle_ids)
         if filt is None:
             self.stop()
             return []
+        if app_audio != self._app_audio:  # switching between app+mic and mic-only needs a new configuration
+            return self.start(bundle_ids)
         (err,) = _await(lambda cb: self.stream.updateContentFilter_completionHandler_(filt, cb))
         if err is not None:
             raise RuntimeError(f"updateContentFilter failed: {err.localizedDescription()}")

@@ -37,7 +37,9 @@ def paths():
     return p
 
 
-def test_real_helper_transcribes_an_app(paths, tmp_path):
+@pytest.mark.parametrize("window", [True, False], ids=["window", "no-window"])
+def test_real_helper_transcribes_an_app(paths, tmp_path, window):
+    """no-window: a process tap captures apps ScreenCaptureKit can't list (like FaceTime's avconferenced)."""
     audio = tmp_path / "review.aiff"
     subprocess.run(["say", "-o", str(audio), "Okay team. The launch review is on Thursday at three p m eastern, "
                     "and Priya will send the invite."], check=True)
@@ -52,7 +54,8 @@ def test_real_helper_transcribes_an_app(paths, tmp_path):
         st = rec.status()
         assert st["state"] == "running" and st["helper"]["permissions"]["screen_capture"] is True, st
         subprocess.run(setup.open_argv(player, env, [str(ROOT / "tests/support/player.py"), str(audio),
-                                                     "--volume", "0.25", "--delay", "3"]), check=True, timeout=20)
+                                                     "--volume", "0.25", "--delay", "3"]
+                                                    + ([] if window else ["--no-window"])), check=True, timeout=20)
         end = time.time() + 30
         text = ""
         while time.time() < end and "thursday" not in text:
