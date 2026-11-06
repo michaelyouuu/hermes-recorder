@@ -121,3 +121,10 @@ def test_hotkey_fallback_used_only_when_no_apps_known(gateway, short_dir):
     r = control.request(short_dir, "toggle", fallback_apps=["com.microsoft.edgemac"])
     assert r["apps"] == ["Zoom"]  # remembered apps win over the frontmost-app fallback
     control.request(short_dir, "off")
+
+
+def test_resolve_apps_friendly_names():
+    from hermes_recorder.runtime import resolve_apps
+    assert resolve_apps(["FaceTime", "zoom", "Microsoft Edge", "com.example.App", "facetime"]) == [
+        "com.apple.FaceTime", "us.zoom.xos", "com.microsoft.edgemac", "com.example.App"]
+    assert resolve_apps(["phone", "WhatsApp"]) == ["com.apple.mobilephone", "net.whatsapp.WhatsApp"]

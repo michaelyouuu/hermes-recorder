@@ -34,8 +34,19 @@ hermes plugins enable hermes-recorder
 hermes recorder setup     # builds the helper, downloads the model, asks for permissions
 hermes recorder doctor    # every check should be ✓
 ```
-Then in any Hermes surface: `/recorder on com.google.Chrome` (any app's bundle id; `us.zoom.xos`,
-`com.apple.FaceTime`, `com.microsoft.edgemac`…) and ask away. `/recorder off` stops it.
+Then in any Hermes surface: `/recorder on facetime` (or `zoom`, `edge`, `chrome`, `"Microsoft Teams"`, or any app's
+bundle id such as `com.google.Chrome`) and ask away. `/recorder off` stops it.
+
+## Calls
+Each app's audio is captured with a macOS **process tap** on exactly the processes that play it, so calls work
+even when the audio comes from a helper or system process, and you keep hearing everything normally:
+- **FaceTime and Phone** (iPhone calls on your Mac): macOS plays these through its call service, `avconferenced`.
+  Choosing FaceTime or Phone captures **every call routed through your Mac** (FaceTime audio and video, and
+  iPhone calls relayed to the Mac), not just one conversation.
+- **Zoom, Teams, Slack, Discord, WhatsApp, Webex, Signal**, including their audio helper processes.
+- **Browser calls** (Google Meet, etc.): choose the browser.
+
+The other side shows up as "them" lines and your microphone as "me". Headphones give the cleanest split.
 
 `setup` creates, under `~/.hermes/plugin-data/hermes-recorder/`:
 - a private Python environment for the helper (faster-whisper, pyobjc). Hermes's own environment isn't touched;
@@ -58,7 +69,7 @@ and the macOS recording indicator shows while it records.
 ## Permissions
 | Permission | Needed for | How it's granted |
 | --- | --- | --- |
-| Screen & System Audio Recording | hearing the apps you choose | switch on **Hermes Recorder Helper** in System Settings |
+| Screen & System Audio Recording | hearing the apps and calls you choose | switch on **Hermes Recorder Helper** in System Settings |
 | Microphone | your own voice ("me" lines) | Allow on the prompt |
 | Accessibility, Input Monitoring | teach mode only | switch on in System Settings when you enable teach mode |
 
@@ -76,11 +87,11 @@ is updated, `setup` rebuilds the helper and macOS asks again.
 - **Recording laws vary.** Some places require everyone on a call to consent. Tell people you're transcribing.
 
 ## Known issues
-- Apps are captured only while they own a window (a macOS ScreenCaptureKit rule). Background-only audio
-  apps can't be selected.
+- Process taps need macOS 14.2+. On macOS 14.0–14.1, and always for **Safari** (its audio plays in a process
+  shared with other apps), capture falls back to ScreenCaptureKit, which only sees apps that own a window.
 - Without headphones, your speakers can bleed into the mic. A filter drops "me" lines that repeat the app audio,
   but it's heuristic.
-- When several apps are captured together, each line is attributed to the frontmost of them.
+- Safari lines (ScreenCaptureKit fallback) are attributed to the frontmost captured app when several are captured.
 - Video isn't captured, so DRM doesn't matter. Audio from protected video is transcribed normally.
 
 ## Development

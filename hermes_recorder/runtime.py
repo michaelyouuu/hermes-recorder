@@ -27,7 +27,29 @@ APP_NAMES = {
     "us.zoom.xos": "Zoom", "com.apple.FaceTime": "FaceTime", "com.microsoft.teams2": "Microsoft Teams",
     "com.tinyspeck.slackmacgap": "Slack", "com.hnc.Discord": "Discord", "com.apple.Notes": "Notes",
     "com.spotify.client": "Spotify", "com.apple.podcasts": "Podcasts", "com.apple.dock": "Dock",
+    "com.apple.mobilephone": "Phone", "net.whatsapp.WhatsApp": "WhatsApp", "Cisco-Systems.Spark": "Webex",
+    "org.whispersystems.signal-desktop": "Signal",
 }
+# Short names accepted wherever apps are given ("/recorder on facetime zoom"), besides full app names.
+APP_ALIASES = {"chrome": "com.google.Chrome", "edge": "com.microsoft.edgemac", "teams": "com.microsoft.teams2",
+               "zoom": "us.zoom.xos", "meet": "com.google.Chrome", "phone": "com.apple.mobilephone"}
+
+
+def _key(name: str) -> str:
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+_BY_NAME = {**{_key(n): b for b, n in APP_NAMES.items()}, **{_key(a): b for a, b in APP_ALIASES.items()}}
+
+
+def resolve_apps(apps: list[str]) -> list[str]:
+    """Map friendly names (FaceTime, zoom, "Microsoft Edge") to bundle ids; keep anything else as given."""
+    out: list[str] = []
+    for a in apps:
+        bid = _BY_NAME.get(_key(a), a)
+        if bid not in out:
+            out.append(bid)
+    return out
 # Dev-only: replay a fixture through the fake helper instead of the real one (tests and the M1 live check).
 DEV_FIXTURE_ENV = "HERMES_RECORDER_DEV_FIXTURE"
 
@@ -98,7 +120,7 @@ class Recorder:
 
     # ------------------------------------------------------------------ actions
     def start(self, apps: list[str] | None = None) -> None:
-        apps = list(apps or remembered_apps() or config("apps") or [])
+        apps = resolve_apps(list(apps or remembered_apps() or config("apps") or []))
         opts = {k: config(k) for k in ("whisper_model", "capture_mic", "capture_events", "capture_snapshots")}
         try:
             self.manager.start(apps, opts)
@@ -119,7 +141,7 @@ class Recorder:
         self.write_status()
 
     def set_apps(self, apps: list[str]) -> None:
-        self.manager.set_apps(apps)
+        self.manager.set_apps(resolve_apps(apps))
         remember_apps(self.manager.apps)
         self.write_status()
 
