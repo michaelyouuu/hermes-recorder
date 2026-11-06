@@ -54,16 +54,22 @@ The other side shows up as "them" lines and your microphone as "me". Headphones 
   macOS asks for permissions in its name, whoever started Hermes. Nothing compiled ships with the plugin;
 - the transcription model (`base.en`, ~280 MB on disk), downloaded once from Hugging Face.
 
-## Global hotkey
-`hermes recorder setup` offers a **⌃⌥R** hotkey (or run `hermes recorder hotkey on`). Press it in any app to
-start or stop recording. You'll hear Tink when it starts, Pop when it stops, and Basso if something's wrong,
-and the macOS recording indicator shows while it records.
-- It records the apps you last chose. The very first time, it records **the app in front of you**.
-- It's a small login item that listens for that one key combination. It needs no permissions, captures
+## Recorder panel and hotkey
+`hermes recorder setup` offers a **⌃⌥R** hotkey (or run `hermes recorder hotkey on`). Press it in any app and
+the **recorder panel** pops up over that app:
+- a live transcript, with the other side ("them", per app) on the left and your mic ("me") on the right;
+- an ask box ("what time did we agree on?") over the last 2, 5, 10 or 30 minutes, answered by your Hermes model
+  from the transcript alone (a quick lookup, not a full agent turn; for that, ask Hermes in chat or the HUD);
+- Pause/Resume and Stop/Start buttons.
+
+If capture is off, the press also starts recording (Tink). It records the apps you last chose, and the very first
+time, **the app in front of you**. Press ⌃⌥R again (or Esc) to hide the panel; recording continues until you press
+Stop. The panel doesn't take focus from your call or video, floats on every Space, and remembers where you put it.
+- The hotkey is a small login item that listens for that one key combination. It needs no permissions, captures
   nothing itself, and `hermes recorder hotkey off` removes it. Change the key with the `hotkey` setting
   (e.g. `cmd+shift+r`), then run `hermes recorder hotkey on`.
 - Right after Hermes restarts, the recorder starts listening once Hermes has handled its first message or
-  chat. Until then the hotkey plays Basso.
+  chat. Until then the hotkey plays Basso and the panel says so.
 - Prefer your own launcher? Bind `hermes recorder toggle` in Shortcuts or Raycast instead.
 
 ## Permissions
@@ -81,7 +87,7 @@ is updated, `setup` rebuilds the helper and macOS asks again.
 - **Audio stays on your Mac.** It's transcribed locally and only text reaches Hermes. The live buffer is RAM
   only (30 min by default); `/recorder forget` clears it. The helper runs offline: only `setup` downloads.
 - **What can leave your Mac:** if your Hermes model is cloud-hosted, the transcript lines the agent reads
-  through `screen_recall` are sent to that model as part of the conversation.
+  through `screen_recall`, and the lines from the window you ask about in the recorder panel, are sent to that model.
 - **A background helper process** runs only while capture is on. The macOS recording indicator shows while
   it captures, and `/recorder pause` turns it off.
 - **Recording laws vary.** Some places require everyone on a call to consent. Tell people you're transcribing.
