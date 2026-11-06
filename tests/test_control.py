@@ -206,3 +206,12 @@ def test_ask_runs_in_the_latest_turn_context(monkeypatch):
     assert out.startswith("profile-a: ")
     assert "Microsoft Edge: the learning rate" in out and "you (microphone): interesting" in out
     runtime.reset_for_tests(None)
+
+
+def test_answers_are_plain_text():
+    from hermes_recorder.ask import plain
+    md = "**Short answer:** he said *three* things.\n\n## Details\n- first `item`\n* second\n\n\n\nok ~16s ago"
+    out = plain(md)
+    assert "*" not in out and "#" not in out and "`" not in out
+    assert out.startswith("Short answer: he said three things.")
+    assert "• first item" in out and "• second" in out

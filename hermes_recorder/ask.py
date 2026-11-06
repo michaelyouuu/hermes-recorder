@@ -6,6 +6,7 @@ The lines reach the user's chosen Hermes model, the same path as the agent calli
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -16,14 +17,38 @@ log = logging.getLogger(__name__)
 
 MAX_QUESTION = 1000
 SYSTEM = (
-    "You answer questions about what the user just heard or said on their Mac, using only the transcript lines "
-    "given. Each line is '[time ago] source: text'. The source is either an app (audio the app played: a video, a "
-    "podcast, the other people on a call) or 'you (microphone)' (the user speaking). Refer to sources naturally "
-    "(\"the video\", \"the speaker\", \"on the call\", \"you said\"), never as 'them' or 'me'. Answer briefly and "
-    "directly, quote short phrases when useful, and mention when something was said (for example 'about 2 min "
-    "ago'). If the lines don't contain the answer, say so in one sentence. Transcripts are automatic and may have "
-    "small errors."
+    "You are a helpful assistant answering a quick question about something the user just heard or said on their "
+    "Mac. You get an automatic transcript of the last few minutes and the question.\n\n"
+    "Each transcript line is '[time ago] source: text'. The source is an app (whatever it played: a video, a "
+    "podcast, the other people on a call) or 'you (microphone)' (the user).\n\n"
+    "How to answer:\n"
+    "- Reply in plain, natural sentences, the way a friend who was listening would. Usually one to three "
+    "sentences; a short paragraph at most for summaries.\n"
+    "- Plain text only. No markdown: no asterisks, bold, headings, bullet points or numbered lists (unless the "
+    "user asks for a list).\n"
+    "- Don't mention timestamps, seconds or how long ago something was said, unless the question is about when.\n"
+    "- Refer to sources naturally (\"the video\", \"the speaker\", \"they said on the call\", \"you said\"), never "
+    "as 'them', 'me' or 'microphone'.\n"
+    "- The transcript may mishear words. Quietly fix obvious mistakes from context; don't comment on the "
+    "transcript or its quality.\n"
+    "- If the transcript doesn't cover the question, say so in one sentence."
 )
+
+
+_MD = [
+    (re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.S), lambda m: m.group(1) or m.group(2)),
+    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), lambda m: m.group(1)),
+    (re.compile(r"`([^`]+)`"), lambda m: m.group(1)),
+    (re.compile(r"^\s{0,3}#{1,6}\s*", re.M), lambda m: ""),
+    (re.compile(r"^\s*[-*+]\s+", re.M), lambda m: "• "),
+]
+
+
+def plain(text: str) -> str:
+    """Strip markdown the model may still emit; the panel shows plain text."""
+    for rx, rep in _MD:
+        text = rx.sub(rep, text)
+    return re.sub(r"\n{3,}", "\n\n", text.replace("*", "")).strip()
 
 
 def _source(ln: dict[str, Any]) -> str:
@@ -54,8 +79,8 @@ def answer(question: str, minutes: float = 5, rec: Any = None, llm: Any = None) 
         user = (f"Transcript of the last {minutes:g} min{note}:\n{_format(lines)}\n\nQuestion: {question}")
         res = runtime.run_in_turn_context(
             llm.complete, messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
-            max_tokens=500, purpose="hermes-recorder: panel ask")
-        text = str(getattr(res, "text", "") or "").strip()
+            max_tokens=400, purpose="hermes-recorder: panel ask")
+        text = plain(str(getattr(res, "text", "") or ""))
         secs = round(time.time() - t0, 1)
         log.info("hermes-recorder: panel ask ok in %ss (%d lines)", secs, len(lines))
         return {"answer": text or "(the model returned no text)", "lines": len(lines), "seconds": secs}
