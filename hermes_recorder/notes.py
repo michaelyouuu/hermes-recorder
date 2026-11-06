@@ -37,12 +37,13 @@ NOTE_SCHEMA = {
         "details": {"type": "array", "items": {
             "type": "object",
             "properties": {"heading": {"type": "string"}, "text": {"type": "string"}},
-            "required": ["heading", "text"]}},
+            "required": ["heading", "text"], "additionalProperties": False}},
         "action_items": {"type": "array", "items": {"type": "string"}},
         "open_questions": {"type": "array", "items": {"type": "string"}},
         "tags": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["title", "summary", "key_points", "details", "action_items", "open_questions", "tags"],
+    "additionalProperties": False,  # strict structured-output APIs (Anthropic) require it on every object
 }
 
 INSTRUCTIONS = (
