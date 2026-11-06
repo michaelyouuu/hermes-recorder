@@ -215,3 +215,33 @@ def test_answers_are_plain_text():
     assert "*" not in out and "#" not in out and "`" not in out
     assert out.startswith("Short answer: he said three things.")
     assert "• first item" in out and "• second" in out
+
+
+def test_check_command_reports_audio_and_lines(gateway, short_dir):
+    from hermes_recorder import cli
+    gateway[0].hooks["pre_gateway_dispatch"]()
+    out: list[str] = []
+    code = cli._check("zoom", 4, sleep=lambda s: __import__("time").sleep(0.5), out=out.append)
+    text = "\n".join(out)
+    assert "Zoom" in text and "transcript line" in text, text
+    assert control.request(short_dir, "status")["state"] == "stopped"  # restored
+    assert code in (0, 1)
+    out.clear()
+    assert cli._check(None, 1, out=out.append) == 2 and "Name an app" in out[0]
+
+
+def test_check_reports_silence_with_a_hint():
+    from hermes_recorder import cli
+    calls = []
+
+    def req(op, **kw):
+        calls.append(op)
+        return {"state": "stopped" if op == "diag" and len(calls) == 1 else "running", "apps": ["Zoom"],
+                "bundle_ids": ["us.zoom.xos"], "lines_by_source": {},
+                "helper": {"streams": {"us.zoom.xos": {"seconds": 4, "peak": 0.0}}, "audio_path": {"us.zoom.xos": "tap"},
+                           "missing_apps": [], "mic": False}}
+
+    out: list[str] = []
+    assert cli._check("zoom", 0.01, req=req, sleep=lambda s: None, out=out.append) == 1
+    assert calls[1] == "on" and calls[-1] == "off"
+    assert any("✗ Zoom (tap): audio silent" in o for o in out) and any("Is it playing?" in o for o in out)

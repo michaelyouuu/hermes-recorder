@@ -293,6 +293,18 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             rec.resume()
         elif op == "feed":
             return {**_brief(rec), **_feed(rec, args.get("since"))}
+        elif op == "diag":  # `hermes recorder check`: streams and lines per source since `since`
+            st = rec.status()
+            try:
+                since = float(args.get("since") or 0)
+            except (TypeError, ValueError):
+                since = 0.0
+            counts: dict[str, int] = {}
+            for e in rec.buffer.slice(since, time.time() + 1, ("transcript",)):
+                k = "mic" if e.speaker == "me" else (e.app or "app")
+                counts[k] = counts.get(k, 0) + 1
+            return {**_brief(rec), "bundle_ids": [a["bundle_id"] for a in st["apps"]],
+                    "helper": st["helper"], "lines_by_source": counts}
         elif op == "notes":
             from .notes import save
             return save(args.get("minutes"), args.get("title_hint"), rec=rec)

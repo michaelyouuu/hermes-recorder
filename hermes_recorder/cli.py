@@ -30,6 +30,10 @@ def setup_parser(parser) -> None:
     sub.add_parser("off", help="Stop capture in the running gateway")
     t = sub.add_parser("toggle", help="Start or stop capture (what the global hotkey runs)")
     t.add_argument("apps", nargs="*", help="Bundle ids to use when starting")
+    c = sub.add_parser("check", help="Record an app briefly and report whether its audio and transcript arrive")
+    c.add_argument("app", nargs="?", help="App name or bundle id, e.g. zoom, chrome, 'Microsoft Teams' "
+                                          "(default: whatever is being captured now)")
+    c.add_argument("--seconds", type=float, default=30, help="How long to listen (default 30)")
     h = sub.add_parser("hotkey", help="Install, remove or check the global recording hotkey")
     h.add_argument("action", choices=["on", "off", "status"])
     h.add_argument("--combo", help="Key combination, e.g. ctrl+opt+r (default: the 'hotkey' setting)")
@@ -151,8 +155,82 @@ def _control(op: str, apps: list[str] | None) -> int:
     return 0
 
 
+CHECK_POLL_S = 2.0
+SILENT_PEAK = 0.002
+
+
+def _check(app: str | None, seconds: float, req=None, sleep=time.sleep, out=print) -> int:
+    """Start capture of ``app`` (unless capture is already running), watch audio and lines, then restore."""
+    req = req or (lambda op, **kw: control.request(runtime.data_dir(), op, timeout=60, **kw))
+    try:
+        st = req("diag")
+    except ConnectionError:
+        out(NOT_LOADED)
+        return 1
+    running = st.get("state") in ("running", "paused", "starting")
+    started = False
+    if running:
+        if app and runtime.resolve_apps([app])[0] not in (st.get("bundle_ids") or []):
+            out(f"Capture is already running for {', '.join(st.get('apps') or [])}. Stop it first "
+                f"(`hermes recorder off`) to check {app}, or run `hermes recorder check` to check those apps.")
+            return 1
+    else:
+        if not app:
+            out("Name an app to check, e.g. `hermes recorder check zoom` (start the call or video first).")
+            return 2
+        r = req("on", apps=[app])
+        if r.get("error"):
+            out(f"Couldn't start capture of {app}: {r['error']}")
+            return 1
+        started = True
+    t0 = time.time()
+    peaks: dict[str, float] = {}
+    st = {}
+    try:
+        out(f"Listening to {', '.join(req('diag').get('apps') or [app or '?'])} for {seconds:g} s. "
+            "Make sure it's playing sound (or someone is talking)…")
+        while time.time() - t0 < seconds:
+            sleep(CHECK_POLL_S)
+            st = req("diag", args={"since": t0})
+            for k, v in ((st.get("helper") or {}).get("streams") or {}).items():
+                peaks[k] = max(peaks.get(k, 0.0), float(v.get("peak") or 0))
+    finally:
+        if started:
+            req("off")
+    helper = st.get("helper") or {}
+    lines = st.get("lines_by_source") or {}
+    ok = True
+    out("")
+    for bid in st.get("bundle_ids") or []:
+        name = runtime.app_name(bid)
+        path = (helper.get("audio_path") or {}).get(bid, "screen capture")
+        heard = peaks.get(bid, peaks.get("app", 0.0)) > SILENT_PEAK
+        got = lines.get(bid, 0)
+        missing = bid in (helper.get("missing_apps") or [])
+        mark = "✓" if heard and got else "✗"
+        ok &= bool(heard and got)
+        out(f"{mark} {name} ({path}): audio {'heard' if heard else 'silent'}, {got} transcript line(s)")
+        if missing:
+            out("   The app isn't running or has no audio process yet. Open it and start playing, then retry.")
+        elif not heard:
+            out("   No sound reached the recorder. Is it playing? Is it muted inside the app? For a call, wait until "
+                "someone talks.")
+        elif not got:
+            out("   Sound arrived but nothing was transcribed. Is it speech (music isn't transcribed)? Try a longer "
+                "--seconds.")
+    if helper.get("mic"):
+        out(f"{'✓' if peaks.get('mic', 0) > SILENT_PEAK else '·'} Microphone: "
+            f"{'heard you' if peaks.get('mic', 0) > SILENT_PEAK else 'quiet'}, {lines.get('mic', 0)} line(s)")
+    if st.get("error"):
+        out(f"Error: {st['error']}")
+        ok = False
+    return 0 if ok else 1
+
+
 def run(args) -> int:
     cmd = getattr(args, "recorder_cmd", None) or "status"
+    if cmd == "check":
+        return _check(getattr(args, "app", None), float(getattr(args, "seconds", 30) or 30))
     if cmd in ("on", "off", "toggle"):
         return _control(cmd, getattr(args, "apps", None))
     if cmd == "hotkey":
