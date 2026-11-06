@@ -33,7 +33,19 @@ Read this whole file before writing any code. It is the scope, the research behi
 
 ## 2. What we are building
 
-**Working name:** `hermes-recorder`. One local capture helper gives Hermes eyes and ears on the whole Mac desktop, and two features share it.
+**Working name:** `hermes-recorder`. **Positioning (decided 2026-11-06): a local meeting copilot that learns your
+follow-up.** "Hermes was in your meeting, and next time it does the follow-up for you." The loop:
+1. **Hear:** any call (Zoom, Meet, FaceTime, Teams) captured locally; no bot joins. The panel offers to record when a
+   call starts (one click, never automatic).
+2. **Remember:** each call becomes a meeting note (decisions, action items with owner and due date, open questions),
+   searchable later.
+3. **Learn (teach mode):** after a meeting you do the follow-up once by hand (demo target: **Linear** issue from the
+   meeting's action items, narrated); Hermes turns it into a skill, retroactively.
+4. **Act:** after the next meeting, "Follow up" runs the skill from the new notes, pausing for approval at Save.
+
+Lecture/video Q&A and notes still work but are a side benefit, not the lead story.
+
+One local capture helper gives Hermes eyes and ears on the whole Mac desktop, and these features share it.
 
 ### Ask mode (must ship)
 While I watch or listen to anything (a YouTube lecture, a Zoom or FaceTime call, a Twitch stream, a podcast), the plugin keeps a rolling, local transcript of the chosen apps' audio. From the Hermes HUD (Cmd+Shift+H), chat or Telegram I can ask "what did he just say about X?", "summarize the last 10 minutes" or "what time did we agree on?" and Hermes answers from the buffer.
@@ -429,6 +441,13 @@ Manifest, pyproject, `register()`, buffer, fake helper for tests, all tools retu
 ### M2: Ask mode end to end (Sat Nov 7)
 Real helper (audio + mic + transcription), helper manager (start, stop, restart, unload), permissions doctor, `/recorder`, settings form. **Done when:** I ask the HUD about a YouTube video I am watching and get a correct answer citing the last minute; Zoom or FaceTime works with "me" vs "them".
 
+### Revised schedule (2026-11-06, meeting-copilot pivot; deadline assumed Wed Nov 11, 5 PM EST)
+- Fri Nov 6: call-start offer, meeting-shaped notes, live Zoom/Meet check.
+- Sat Nov 7: teach capture (event tap + AX, masking, deltas, narration).
+- Sun Nov 8: compiler, SKILL.md render + lint, `skill_manage`, "Follow up"; replay on Linear. Cut decision Sun 6 PM.
+- Mon Nov 9: public repo, CI, README screenshots, catalog PR by evening.
+- Tue Nov 10: demo with a real two-person call. Wed Nov 11 noon: post + Typeform.
+
 ### M3: Teach mode capture and compiler (Sun Nov 8)
 Event capture with masking, normalization, `recorder_draft_skill`, SKILL.md rendering that passes skill lint, bundled `replay-recorded` skill. **Done when:** a 2-minute demo becomes a skill I would accept after answering the questions.
 
@@ -474,12 +493,14 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 
 ## 14. Demo script (under 90 seconds)
 
-1. (0 to 10 s) Hook line: "Hermes can now see and hear your whole Mac, locally. Watch."
-2. (10 to 30 s) YouTube lecture playing. Cmd+Shift+H: "What did he just say about the learning rate?" Correct answer quoting the last 20 seconds.
-3. (30 to 45 s) FaceTime or Zoom: "What time did we agree on?" Answer labeled "them".
-4. (45 to 75 s) I file a quick expense (or another 4-step task) without pressing anything. Then: "Turn what I just did into a skill." Draft appears, one question answered, saved.
-5. (75 to 88 s) "Do it again for this receipt." Hermes replays, pauses for approval at Submit.
-6. End card: "Local. Any app. Teach after the fact. hermes-recorder."
+1. (0 to 8 s) Hook: "Hermes now sits in your meetings and learns your follow-up. Locally."
+2. (8 to 30 s) A Zoom call starts; the panel offers "Record this call?"; one click. Call ends → Save notes: decisions
+   and action items appear. Ask the panel "what did Sam need by Friday?"
+3. (30 to 60 s) I file the action item in Linear from the notes, narrating why. "Turn what I just did into a skill":
+   draft appears, one question answered, saved.
+4. (60 to 85 s) A second call ends. "Follow up": Hermes files the new action items in Linear from the new notes and
+   pauses for approval at Create.
+5. End card: "Any call. Local. Teach after the fact. hermes-recorder."
 
 ---
 
@@ -545,6 +566,7 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-06 | `buffer_minutes` default 30 → 90 | One Save notes can cover a full lecture; ~80 KB of RAM. Approved with the plan |
 | 2026-11-06 | Panel sends its last 3 Q&As; "Waiting for Hermes" banner with Open Hermes | Follow-ups failed; S8 found no gateway-start hook, so the socket still starts on the first message |
 | 2026-11-06 | `hermes recorder check <app>` + `diag` control op | Lets users and us verify an app (Zoom, Meet, Twitch) before claiming support |
+| 2026-11-06 | Lead story: local meeting copilot that learns your follow-up; teach-mode demo target Linear | Lectures read as "a prompt over a transcript"; meetings → notes → taught follow-up is more than a prompt could do. Chosen by Michael |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---
