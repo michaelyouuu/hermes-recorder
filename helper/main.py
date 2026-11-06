@@ -28,6 +28,8 @@ from helper.segments import EchoFilter, keep  # noqa: E402
 
 PROTOCOL_VERSION = 1
 SILENCE_RMS = 1e-4
+# Transcription chunks are cut at pauses, 2-10 s long (see dsp.PauseChunker; benchmarked in spikes/RESULTS.md S7)
+CHUNK_MIN_S, CHUNK_MAX_S = 2.0, 10.0
 QUEUE_MAX = 8
 RETRY_APPS_S = 2.0
 STATUS_EVERY_S = 15.0
@@ -93,7 +95,7 @@ class Helper:
             st["peak"] = max(st["peak"], float(abs(x).max()))
         w = self.windows.get(key)
         if w is None or w.rate != rate:
-            w = self.windows[key] = dsp.Windower(rate)
+            w = self.windows[key] = dsp.PauseChunker(rate, min_s=CHUNK_MIN_S, max_s=CHUNK_MAX_S)
         for _, win in w.push(x):
             if rate != dsp.TARGET_RATE:
                 win = dsp.resample(win, rate)

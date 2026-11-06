@@ -81,3 +81,39 @@ def test_downmix_mono_and_partial_frame():
     raw = np.array([0.1, 0.2, 0.3], np.float32).tobytes()
     assert np.allclose(dsp.downmix(raw, 1), [0.1, 0.2, 0.3])
     assert len(dsp.downmix(raw, 2)) == 1
+
+
+def _speechy(rate, spans, total_s):
+    """Tone bursts at the given (start, end) seconds, silence elsewhere."""
+    t = np.arange(int(total_s * rate)) / rate
+    x = np.zeros_like(t, dtype=np.float32)
+    for a, b in spans:
+        m = (t >= a) & (t < b)
+        x[m] = 0.3 * np.sin(2 * np.pi * 220 * t[m])
+    return x.astype(np.float32)
+
+
+def test_pause_chunker_cuts_in_the_gap_without_overlap():
+    rate = 16000
+    x = _speechy(rate, [(0, 2.5), (3.0, 6.0), (6.4, 12.0)], 12.5)
+    c = dsp.PauseChunker(rate, min_s=2, max_s=10)
+    out = []
+    for i in range(0, len(x), 1600):  # 0.1 s blocks, like live capture
+        out += c.push(x[i:i + 1600])
+    ends = [round(e, 2) for e, _ in out]
+    assert 2.5 < ends[0] < 3.0 and 6.0 < ends[1] < 6.4  # cut inside the pauses
+    assert sum(len(w) for _, w in out) == int(round(ends[-1] * rate))  # contiguous, no overlap
+
+
+def test_pause_chunker_forces_a_cut_without_pauses():
+    rate = 16000
+    x = _speechy(rate, [(0, 25)], 25)
+    c = dsp.PauseChunker(rate, min_s=2, max_s=10)
+    out = c.push(x)
+    assert len(out) >= 2 and all(7 <= len(w) / rate <= 10 for _, w in out)
+
+
+def test_pause_chunker_any_rate():
+    c = dsp.PauseChunker(48000, min_s=2, max_s=10)
+    out = c.push(_speechy(48000, [(0, 2.2), (2.6, 5)], 5.5))
+    assert out and 2.2 < out[0][0] < 2.6

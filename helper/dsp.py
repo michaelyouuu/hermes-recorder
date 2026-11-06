@@ -65,6 +65,68 @@ class Windower:
         return out
 
 
+class PauseChunker:
+    """Cuts a stream into non-overlapping chunks at natural pauses (``min_s``..``max_s`` long).
+
+    Fixed overlapping windows split words at their edges, and Whisper hears the overlap differently in each window,
+    which left duplicated or mangled words ("rose roast beef"). Cutting in silence avoids both. A pause is a run of
+    ``pause_s`` of 20 ms frames quieter than an adaptive threshold; with no pause by ``max_s`` (music, fast talk),
+    the cut goes at the quietest frame of the last ``search_s``. Same ``push`` contract as ``Windower``.
+    """
+
+    FRAME_S = 0.02
+
+    def __init__(self, rate: float, min_s: float = 3.0, max_s: float = 15.0, pause_s: float = 0.3,
+                 search_s: float = 3.0):
+        self.rate = rate
+        self.frame = max(1, int(round(self.FRAME_S * rate)))
+        self.min_f = int(round(min_s / self.FRAME_S))
+        self.max_f = int(round(max_s / self.FRAME_S))
+        self.pause_f = max(1, int(round(pause_s / self.FRAME_S)))
+        self.search_f = int(round(search_s / self.FRAME_S))
+        self.reset()
+
+    def reset(self) -> None:
+        self._buf = np.zeros(0, dtype=np.float32)
+        self._start = 0  # absolute sample index of self._buf[0]
+
+    def _cut(self, levels: np.ndarray) -> int | None:
+        """Frame index to cut at, or None to wait for more audio."""
+        n = len(levels)
+        if n < self.min_f:
+            return None
+        loud = levels[levels > 1e-4]
+        thr = max(3e-4, 0.12 * float(np.median(loud))) if len(loud) else 3e-4
+        quiet = levels < thr
+        run = 0
+        for i in range(n):
+            run = run + 1 if quiet[i] else 0
+            if run >= self.pause_f and i + 1 >= self.min_f:
+                return i + 1 - run // 2  # middle of the pause
+        if n >= self.max_f:
+            lo = self.max_f - self.search_f
+            return lo + int(np.argmin(levels[lo:self.max_f]))
+        return None
+
+    def push(self, samples: np.ndarray) -> list[tuple[float, np.ndarray]]:
+        self._buf = np.concatenate([self._buf, np.asarray(samples, dtype=np.float32)])
+        out = []
+        while True:
+            nf = len(self._buf) // self.frame
+            if nf < self.min_f:
+                break
+            frames = self._buf[:nf * self.frame].reshape(nf, self.frame)
+            levels = np.sqrt(np.mean(np.square(frames, dtype=np.float64), axis=1))
+            cut = self._cut(levels)
+            if cut is None:
+                break
+            k = max(1, cut) * self.frame
+            out.append(((self._start + k) / self.rate, self._buf[:k].copy()))
+            self._buf = self._buf[k:]
+            self._start += k
+        return out
+
+
 def downmix(raw: bytes, channels: int) -> np.ndarray:
     """Interleaved float32 PCM bytes -> mono float32 (mean of channels). Drops a trailing partial frame."""
     x = np.frombuffer(raw, dtype=np.float32)

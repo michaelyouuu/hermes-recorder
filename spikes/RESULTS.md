@@ -232,3 +232,22 @@ an aggregate device holding the tap, and a ctypes IOProc. Run inside Hermes Reco
   an HUD-material blur; the JS bridge round-trips (page `ready` → feed polling every 1 s); the ask box gets focus.
 - Pending (Michael): typing into it over FaceTime/Edge without the call losing focus or audio; Esc hides.
 - `setup --hotkey` raced launchd (bootstrap right after bootout failed, agent not loaded); fixed with a retry.
+
+## S7: transcription accuracy (2026-11-05)
+Michael reported many misheard words. `spikes/s7_asr_bench.py` runs 20–30 LibriSpeech clips, concatenated into one
+stream, through the helper's chunking, filters and buffer merge, and reports WER (base.en int8, M4).
+
+| Setup (30 clips, 238 s, clean) | WER | RTF |
+| --- | --- | --- |
+| Old: 5 s windows, 4 s hop, beam 1 | 0.193 | 0.071 |
+| Old windows, beam 5 | 0.162 | 0.086 |
+| Pause chunks 3–15 s, beam 1 | 0.100 | 0.053 |
+| **Pause chunks 2–10 s, beam 5 (new)** | **0.086** | 0.072 |
+| Whole clips, beam 5 (ceiling) | 0.100* | |
+
+\*20-clip runs: whole-clip and pause-chunk results agree; most of the remaining "errors" are spelling (MISTER/Mr).
+- Cause: the 1 s overlap was transcribed differently in each window, so the merge kept both ("go gospel", "rose
+  roast beef", "grieved greek"), and words split at window edges were mangled.
+- With noise (σ 0.01 / 0.03): old 0.237 / 0.350, new 0.181 / 0.248. Disabling VAD helped only at heavy noise
+  (0.205) and risks hallucinations on music, so VAD stays on. Prompting with earlier text didn't help.
+- small.en with the new chunks: 0.071 clean / 0.158 noisy at RTF 0.21 (3× base.en), so it stays an option.
