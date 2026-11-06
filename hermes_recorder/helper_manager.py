@@ -254,7 +254,8 @@ class HelperManager:
                        "last_transcript_age_s": (round(time.time() - self.last_transcript_at, 1)
                                                  if self.last_transcript_at else None),
                        "streams": self.helper_status.get("streams"),
-                       "audio_path": self.helper_status.get("audio_path")},
+                       "audio_path": self.helper_status.get("audio_path"),
+                       "events": self.helper_status.get("events")},
             "counters": dict(self.counters), "protocol_version": proto.PROTOCOL_VERSION,
         }
 
@@ -353,7 +354,7 @@ class HelperManager:
         if msg.type == "status":
             self.helper_status = {k: msg.get(k) for k in ("capturing", "missing_apps", "paused", "mic",
                                                           "cpu_s", "rss_mb", "counters", "streams",
-                                                          "audio_path")}
+                                                          "audio_path", "events")}
             if self.on_status:
                 try:
                     self.on_status()

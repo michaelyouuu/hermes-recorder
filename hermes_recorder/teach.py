@@ -276,6 +276,10 @@ def draft(minutes: Any = 5, goal_hint: str | None = None, rec: Any = None, llm: 
         now = time.time()
         entries = rec.buffer.recent(minutes)
         events = [e for e in entries if e.kind == "ui_event"]
+        ev_state = ((getattr(getattr(rec, "manager", None), "status", lambda: {})() or {}).get("helper") or {}).get("events")
+        if len(events) < 2 and ev_state in ("needs_input_monitoring", "needs_accessibility", "off"):
+            return {"error": "Clicks and typing weren't recorded: teach mode needs its macOS permissions. Run "
+                             "`hermes recorder teach on` in a terminal, start recording again, then redo the task."}
         if len(events) < 2:
             return {"error": f"No clicks or typing were recorded in the last {minutes:g} min. Teach mode records "
                              "only the apps being captured: add the app you worked in (e.g. `/recorder on chrome`), "

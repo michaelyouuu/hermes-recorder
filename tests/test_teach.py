@@ -138,3 +138,30 @@ def test_bundled_skill_registered_and_lint_clean(ctx):
     path = ctx.skills["replay-recorded"]
     text = path.read_text()
     assert "## When to Use" in text and not [p for p in teach.lint(text) if "When to Use" not in p]
+
+
+def _rec_with(helper, apps=("us.zoom.xos",), started_ago=60, lines=()):
+    b = RingBuffer(90)
+    for e in lines:
+        b.add(e)
+    rec = runtime.Recorder.__new__(runtime.Recorder)
+    rec.buffer, rec.started_at = b, time.time() - started_ago
+    rec.manager = type("M", (), {"status": lambda self: {"state": "running", "apps": list(apps), "helper": helper}})()
+    return rec
+
+
+def test_warnings_explain_silence_and_missing_permissions(ctx):
+    silent = {"streams": {"us.zoom.xos": {"seconds": 30, "peak": 0.0}}, "events": "needs_input_monitoring"}
+    w = _rec_with(silent).warnings()
+    assert "No sound from Zoom yet." in w and any("teach on" in x for x in w)
+    assert _rec_with({"missing_apps": ["us.zoom.xos"]}).warnings() == ["Zoom isn't open or making sound yet."]
+    heard = [Entry("transcript", time.time() - 5, "us.zoom.xos", "them", "hello")]
+    assert _rec_with(silent, lines=heard).warnings() == [w[0]]  # lines arrived: no silence warning
+    assert _rec_with(silent, started_ago=5).warnings() == [w[0]]  # too early to tell
+    ctx.config["capture_events"] = False
+    assert _rec_with({"streams": {"us.zoom.xos": {"seconds": 30, "peak": 0.3}}}).warnings() == []
+
+
+def test_draft_says_when_teach_permissions_are_missing(ctx):
+    rec = _rec_with({"events": "needs_input_monitoring"})
+    assert "teach on" in teach.draft(5, rec=rec, llm=LLM())["error"]

@@ -192,8 +192,34 @@ class Recorder:
                        "newest_age_s": round(time.time() - span[1], 1) if span else None},
             "helper": m["helper"], "error": m["error"],
             "settings": {k: config(k) for k in ("whisper_model", "capture_mic", "capture_events", "autostart")},
+            "warnings": self.warnings(m),
             "protocol_version": m["protocol_version"],
         }
+
+    def warnings(self, m: dict[str, Any] | None = None) -> list[str]:
+        """Short, fixable reasons capture isn't doing what the user expects (shown in the panel)."""
+        m = m or self.manager.status()
+        if m["state"] != "running" or not self.started_at:
+            return []
+        h = m.get("helper") or {}
+        out: list[str] = []
+        if config("capture_events") and h.get("events") in ("needs_input_monitoring", "needs_accessibility"):
+            out.append("Teach mode needs a permission: run `hermes recorder teach on`.")
+        if time.time() - self.started_at < WARN_AFTER_S:
+            return out
+        heard = {e.app for e in self.buffer.slice(self.started_at, time.time() + 1, ("transcript",))}
+        streams = h.get("streams") or {}
+        for bid in m["apps"]:
+            if bid in heard:
+                continue
+            name = app_name(bid)
+            if bid in (h.get("missing_apps") or []):
+                out.append(f"{name} isn't open or making sound yet.")
+            else:
+                s = streams.get(bid) or streams.get("app") or {}
+                if s.get("seconds", 0) >= 10 and not s.get("peak"):
+                    out.append(f"No sound from {name} yet.")
+        return out
 
     def write_status(self) -> None:
         """Snapshot for `hermes recorder status`, which runs in a different process."""
@@ -263,6 +289,7 @@ def remember_apps(apps: list[str]) -> None:
         pass
 
 
+WARN_AFTER_S = 20    # give capture this long before saying an app is silent
 FEED_MAX = 200        # transcript lines per panel feed
 FEED_OVERLAP_S = 15   # resend this much before `since`: mic and app lines can arrive out of order
 
@@ -347,6 +374,7 @@ def _brief(rec: Recorder) -> dict[str, Any]:
     return {"state": st["state"], "apps": [a["name"] for a in st["apps"]], "error": st["error"],
             "minutes_available": st["buffer"]["minutes_available"], "started_at": rec.started_at,
             "bundle_ids": list(rec.manager.apps), "call_prompt": bool(config("call_prompt")),
+            "warnings": st.get("warnings") or [],
             "session_lines": len(session),
             "session_minutes": round((session[-1].ts - session[0].ts) / 60, 1) if session else 0,
             "now": time.time()}

@@ -39,6 +39,9 @@
   .banner { margin: 0 12px 8px; padding: 6px 10px; border-radius: 8px; background: rgba(255,69,58,.14);
     font-size: 12px; display: none; }
   .banner.show { display: block; }
+  .warn { margin: 0 12px 8px; padding: 6px 10px; border-radius: 8px; background: var(--chip); color: var(--fg2);
+    font-size: 12px; display: none; }
+  .warn.show { display: block; }
   .banner .btn { margin-left: 8px; padding: 2px 8px; font-size: 11.5px; vertical-align: 0; }
   .note { flex: none; background: var(--card); border-radius: 12px; padding: 10px 12px; animation: rise .18s ease-out;
     -webkit-user-select: text; cursor: auto; border: 1px solid var(--line); }
@@ -107,6 +110,7 @@
     <button class="x" id="close" title="Hide (Esc)">✕</button>
   </header>
   <div class="banner" id="banner"></div>
+  <div class="warn" id="warn"></div>
   <section id="answers"></section>
   <form id="ask" autocomplete="off">
     <input id="q" placeholder="Ask anything…" spellcheck="false">
@@ -235,6 +239,8 @@
       b.textContent = f.error; b.classList.add('show');
       if (f.not_listening && f.can_open_hermes) b.append(button('Open Hermes', '', () => post('openHermes')));
     } else b.classList.remove('show');
+    const h = $('warn'), w = (!f.error && f.warnings) || [];
+    h.textContent = w.join(' '); h.classList.toggle('show', w.length > 0);
     tick();
     showEmpty();
     updateNotesButton();

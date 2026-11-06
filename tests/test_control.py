@@ -246,4 +246,4 @@ def test_check_reports_silence_with_a_hint():
     out: list[str] = []
     assert cli._check("zoom", 0.01, req=req, sleep=lambda s: None, out=out.append) == 1
     assert calls[1] == "on" and calls[-1] == "off"
-    assert any("✗ Zoom (tap): audio silent" in o for o in out) and any("Is it playing?" in o for o in out)
+    assert any("✗ Zoom (tap): audio silent" in o for o in out) and any("Is it playing" in o for o in out)

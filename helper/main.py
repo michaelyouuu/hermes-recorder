@@ -57,6 +57,7 @@ class Helper:
         self.capture = None
         self.taps = None
         self.events = None  # helper.capture_events.EventCapture when teach mode is on
+        self.events_state = "off"  # off | on | needs_input_monitoring | needs_accessibility
         self.fatal: str | None = None
 
     # ------------------------------------------------------------------ socket
@@ -207,7 +208,11 @@ class Helper:
                 from helper.capture_events import EventCapture
                 ev = EventCapture(self.send_event)
                 self.events = ev if ev.start() else None
+                perms = permissions.status()
+                self.events_state = ("needs_input_monitoring" if self.events is None else
+                                     "on" if perms.get("accessibility") else "needs_accessibility")
             except Exception as e:
+                self.events_state = "needs_input_monitoring"
                 self.log.warning("ui events unavailable: %s", e)
         self.audio_path = {**{b: "tap" for b in tap_apps}, **{b: "sck" for b in sck_apps}}
         self.capturing = [b for b in self.apps if b in tapped or b in self.sck_capturing]
@@ -255,6 +260,7 @@ class Helper:
                        "peak": round(v["peak"], 4)} for k, v in self.streams.items()}
         fields = dict(capturing=self.capturing, missing_apps=missing, paused=self.paused, audio_path=self.audio_path,
                       mic=bool(self.capture and self.capture.mic), counters=dict(self.counters), streams=streams,
+                      events=self.events_state,
                       cpu_s=round(r.ru_utime + r.ru_stime, 1), rss_mb=round(r.ru_maxrss / 1048576, 1))
         self.send("status", **fields)
         self.log.info("status %s", json.dumps(fields))
