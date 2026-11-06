@@ -108,8 +108,8 @@ def _hotkey_on(paths: setup.Paths, combo: str) -> int:
     time.sleep(1.0)
     st = hotkey_agent.status()
     if st["running"]:
-        print(f"Hotkey {hotkey_agent.pretty(combo)} is on. Press it in any app to start or stop recording "
-              "(Tink = started, Pop = stopped, Basso = problem).")
+        print(f"Hotkey {hotkey_agent.pretty(combo)} is on. Press it in any app to open the recorder panel; "
+              "it starts recording that app if capture is off (Tink = started, Basso = problem).")
         return 0
     print(f"Hotkey installed but not running. Another app may own {hotkey_agent.pretty(combo)}; "
           "set a different 'hotkey' and re-run, or see ~/.hermes/plugin-data/hermes-recorder/logs/hotkey.log.")

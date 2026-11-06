@@ -1,8 +1,10 @@
 """Global recording hotkey, run as a tiny login item inside Hermes Recorder Helper.app.
 
 Uses Carbon's RegisterEventHotKey, which catches one key combination from any app without Accessibility or
-Input Monitoring permission (it never sees other keystrokes). A press asks the gateway to toggle capture over
-the owner-only control socket and plays a short sound: on, off, or error.
+Input Monitoring permission (it never sees other keystrokes). A press shows or hides the recorder panel
+(helper/panel.py) and, if capture is off, asks the gateway to start it over the owner-only control socket.
+Sounds: Tink when capture starts, Basso on error. Without WebKit (deps not reinstalled yet) a press falls back to
+toggling capture.
 """
 from __future__ import annotations
 
@@ -62,12 +64,54 @@ def run(combo: str, data_dir: str) -> int:
 
     keycode, mask = parse_combo(combo)
     busy = threading.Lock()
+    data = Path(data_dir)
+
+    def client(op, timeout=30, apps=None, fallback_apps=None, args=None):
+        return control.request(data, op, apps, timeout=timeout, fallback_apps=fallback_apps, args=args)
+
+    panel = None
+    try:
+        from helper.panel import RecorderPanel
+        panel = RecorderPanel(client)
+    except Exception as e:  # WebKit missing: keep the plain toggle
+        log.warning("recorder panel unavailable (%s); the hotkey only toggles capture", e)
+
+    def summon() -> None:  # worker thread: start capture if it's off; the panel is already showing
+        if not busy.acquire(blocking=False):
+            return
+        try:
+            r = client("summon", fallback_apps=_frontmost())
+            if r.get("error"):
+                log.warning("hotkey summon error: %s", r["error"])
+                _play(SOUNDS["error"])
+            elif r.get("started"):
+                log.info("hotkey started capture: %s", r.get("apps"))
+                _play(SOUNDS["on"])
+        except ConnectionError:
+            log.info("hotkey pressed but the gateway isn't listening yet")
+            _play(SOUNDS["error"])
+        except Exception as e:
+            log.warning("hotkey summon failed: %s", e)
+            _play(SOUNDS["error"])
+        finally:
+            busy.release()
+
+    def press() -> None:  # main thread
+        if panel is None:
+            threading.Thread(target=toggle, name="hotkey-toggle", daemon=True).start()
+            return
+        if panel.visible:
+            panel.hide()
+            return
+        panel.show()
+        panel.note_starting()
+        threading.Thread(target=summon, name="hotkey-summon", daemon=True).start()
 
     def toggle() -> None:
         if not busy.acquire(blocking=False):
             return  # ignore presses while a toggle is in flight
         try:
-            r = control.request(Path(data_dir), "toggle", fallback_apps=_frontmost())
+            r = client("toggle", fallback_apps=_frontmost())
             state = r.get("state")
             if r.get("error"):
                 log.warning("hotkey toggle error: %s", r["error"])
@@ -85,8 +129,11 @@ def run(combo: str, data_dir: str) -> int:
             busy.release()
 
     @_HANDLER
-    def on_hotkey(call_ref, event, user):  # Carbon callback: hand off, return immediately
-        threading.Thread(target=toggle, name="hotkey-toggle", daemon=True).start()
+    def on_hotkey(call_ref, event, user):  # Carbon callback (main thread): hand off, return immediately
+        try:
+            press()
+        except Exception as e:
+            log.warning("hotkey press failed: %s", e)
         return 0
 
     carbon = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Carbon")

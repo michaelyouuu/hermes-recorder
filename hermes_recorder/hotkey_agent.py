@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import plistlib
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -16,6 +17,7 @@ from .hotkeys import parse_combo, pretty  # noqa: F401  (pretty re-exported)
 
 LABEL = "io.github.michaelyouuu.hermes-recorder.hotkey"
 DEFAULT_COMBO = "ctrl+opt+r"
+BOOTSTRAP_TRIES = 10
 Run = Callable[..., subprocess.CompletedProcess]
 
 
@@ -48,7 +50,11 @@ def install(paths: setup.Paths, combo: str = DEFAULT_COMBO, run: Run = subproces
     p.parent.mkdir(parents=True, exist_ok=True)
     uninstall(run=run, keep_file=True)
     p.write_bytes(plist_bytes(paths, combo))
-    run(["/bin/launchctl", "bootstrap", _domain(), str(p)], check=False, capture_output=True, text=True)
+    for _ in range(BOOTSTRAP_TRIES):  # bootout finishes asynchronously; bootstrap fails (EIO) until it has
+        r = run(["/bin/launchctl", "bootstrap", _domain(), str(p)], check=False, capture_output=True, text=True)
+        if getattr(r, "returncode", 0) == 0:
+            break
+        time.sleep(0.3)
     return p
 
 

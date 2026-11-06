@@ -1,0 +1,252 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Hermes Recorder</title>
+<style>
+  :root {
+    --fg: rgba(255,255,255,.92); --fg2: rgba(255,255,255,.60); --fg3: rgba(255,255,255,.38);
+    --line: rgba(255,255,255,.09); --chip: rgba(255,255,255,.08); --chip-h: rgba(255,255,255,.14);
+    --me: #7cc4ff; --me-bg: rgba(64,156,255,.16); --them-bg: rgba(255,255,255,.06);
+    --rec: #ff453a; --paused: #ffd60a; --ok: #30d158; --card: rgba(255,255,255,.07);
+    --input: rgba(0,0,0,.28);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --fg: rgba(0,0,0,.86); --fg2: rgba(0,0,0,.55); --fg3: rgba(0,0,0,.35);
+      --line: rgba(0,0,0,.08); --chip: rgba(0,0,0,.05); --chip-h: rgba(0,0,0,.10);
+      --me: #0a64d8; --me-bg: rgba(10,100,216,.10); --them-bg: rgba(0,0,0,.045);
+      --card: rgba(255,255,255,.65); --input: rgba(255,255,255,.7);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: transparent; color: var(--fg);
+    font: 13px/1.42 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none; cursor: default; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; -webkit-app-region: drag; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg3); flex: none; }
+  body.running .dot { background: var(--rec); box-shadow: 0 0 0 0 rgba(255,69,58,.6); animation: pulse 1.8s infinite; }
+  body.paused .dot { background: var(--paused); }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,69,58,.55); } 70% { box-shadow: 0 0 0 7px rgba(255,69,58,0); } 100% { box-shadow: 0 0 0 0 rgba(255,69,58,0); } }
+  .title { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .apps { color: var(--fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .clock { margin-left: auto; color: var(--fg2); font-variant-numeric: tabular-nums; }
+  .x { -webkit-app-region: no-drag; border: 0; background: transparent; color: var(--fg3); font-size: 15px;
+    width: 22px; height: 22px; border-radius: 6px; line-height: 22px; }
+  .x:hover { background: var(--chip-h); color: var(--fg); }
+
+  #lines { flex: 1; overflow-y: auto; padding: 4px 12px 10px; display: flex; flex-direction: column; gap: 6px;
+    -webkit-user-select: text; cursor: auto; border-top: 1px solid var(--line); }
+  #lines::-webkit-scrollbar { width: 6px; } #lines::-webkit-scrollbar-thumb { background: var(--chip-h); border-radius: 3px; }
+  .turn { max-width: 88%; padding: 6px 10px 7px; border-radius: 12px; background: var(--them-bg); align-self: flex-start; }
+  .turn.me { align-self: flex-end; background: var(--me-bg); }
+  .who { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--fg3); margin-bottom: 1px; }
+  .turn.me .who { color: var(--me); text-align: right; }
+  .who span { font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .empty { margin: auto; text-align: center; color: var(--fg3); padding: 24px; }
+  .empty b { display: block; color: var(--fg2); font-weight: 600; margin-bottom: 4px; }
+  .jump { position: absolute; left: 50%; transform: translateX(-50%); bottom: 132px; border: 0; padding: 4px 10px;
+    border-radius: 999px; background: var(--chip-h); color: var(--fg); font: inherit; font-size: 11.5px; display: none;
+    backdrop-filter: blur(8px); }
+  .jump.show { display: block; }
+
+  #answers { display: flex; flex-direction: column; gap: 6px; padding: 0 12px; max-height: 42%; overflow-y: auto; }
+  #answers:not(:empty) { padding-top: 10px; border-top: 1px solid var(--line); }
+  .qa { background: var(--card); border-radius: 12px; padding: 8px 11px 9px; -webkit-user-select: text; cursor: auto;
+    animation: rise .18s ease-out; }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .q { color: var(--fg2); font-size: 12px; margin-bottom: 3px; display: flex; gap: 6px; }
+  .q .meta { margin-left: auto; color: var(--fg3); white-space: nowrap; }
+  .a { white-space: pre-wrap; }
+  .a.err { color: var(--rec); }
+  .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--fg3); border-top-color: var(--fg);
+    border-radius: 50%; animation: r .7s linear infinite; vertical-align: -1px; margin-right: 6px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  form { display: flex; align-items: center; gap: 6px; margin: 10px 12px 8px; padding: 4px 4px 4px 12px;
+    background: var(--input); border-radius: 12px; border: 1px solid var(--line); }
+  form:focus-within { border-color: rgba(64,156,255,.65); box-shadow: 0 0 0 3px rgba(64,156,255,.18); }
+  input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit;
+    font-size: 13.5px; padding: 6px 0; -webkit-user-select: text; }
+  input::placeholder { color: var(--fg3); }
+  .mins { display: flex; background: var(--chip); border-radius: 8px; padding: 2px; }
+  .mins button { border: 0; background: transparent; color: var(--fg2); font: inherit; font-size: 11.5px;
+    padding: 3px 7px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+  .mins button.on { background: var(--chip-h); color: var(--fg); font-weight: 600; }
+
+  footer { display: flex; align-items: center; gap: 6px; padding: 0 12px 12px; }
+  .btn { border: 0; background: var(--chip); color: var(--fg); font: inherit; font-size: 12px; font-weight: 500;
+    padding: 5px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--chip-h); }
+  .btn:disabled { opacity: .4; }
+  .btn.stop i { width: 8px; height: 8px; background: var(--rec); border-radius: 2px; display: inline-block; }
+  .btn.start i { width: 8px; height: 8px; background: var(--rec); border-radius: 50%; display: inline-block; }
+  .hint { margin-left: auto; color: var(--fg3); font-size: 11px; }
+  kbd { font: inherit; padding: 0 4px; border-radius: 4px; background: var(--chip); color: var(--fg2); }
+  .banner { margin: 0 12px 8px; padding: 6px 10px; border-radius: 8px; background: rgba(255,69,58,.14); color: var(--fg);
+    font-size: 12px; display: none; }
+  .banner.show { display: block; }
+</style>
+</head>
+<body class="stopped">
+  <header>
+    <div class="dot"></div>
+    <div class="title" id="state">Recorder</div>
+    <div class="apps" id="apps"></div>
+    <div class="clock" id="clock"></div>
+    <button class="x" id="close" title="Hide (Esc)">✕</button>
+  </header>
+  <main id="lines"><div class="empty"><b>Listening…</b>Lines appear here as people talk.</div></main>
+  <button class="jump" id="jump">↓ New lines</button>
+  <div class="banner" id="banner"></div>
+  <section id="answers"></section>
+  <form id="ask" autocomplete="off">
+    <input id="q" placeholder="Ask about the last 5 min…" spellcheck="false">
+    <div class="mins" id="mins">
+      <button type="button" data-m="2">2m</button><button type="button" data-m="5" class="on">5m</button><button type="button" data-m="10">10m</button><button type="button" data-m="30">30m</button>
+    </div>
+  </form>
+  <footer>
+    <button class="btn" id="pause">Pause</button>
+    <button class="btn stop" id="stop"><i></i>Stop</button>
+    <span class="hint"><kbd>⌃⌥R</kbd> hide · <kbd>esc</kbd></span>
+  </footer>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const post = (op, extra) => {
+    try { window.webkit.messageHandlers.rec.postMessage(Object.assign({ op }, extra || {})); }
+    catch (e) { console.log('no bridge', op); }
+  };
+  let minutes = 5, state = 'stopped', startedAt = null, clockSkew = 0, nextId = 1;
+  const seen = new Set();
+  const lines = $('lines');
+  let stick = true;
+
+  const fmt = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+  const ago = ts => { const s = Math.max(0, Math.round(Date.now() / 1000 - clockSkew - ts));
+    return s < 60 ? s + 's ago' : Math.round(s / 60) + 'm ago'; };
+
+  lines.addEventListener('scroll', () => {
+    stick = lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
+    if (stick) $('jump').classList.remove('show');
+  });
+  $('jump').onclick = () => { lines.scrollTop = lines.scrollHeight; };
+
+  function addLine(l) {
+    const key = l.ts + '|' + l.speaker + '|' + l.app;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const empty = lines.querySelector('.empty'); if (empty) empty.remove();
+    const me = l.speaker === 'me';
+    // keep lines in time order (mic and app lines can arrive out of order)
+    let before = null;
+    for (const el of Array.from(lines.children).reverse()) {
+      if (+el.dataset.ts <= l.ts) break;
+      before = el;
+    }
+    const prev = before ? before.previousElementSibling : lines.lastElementChild;
+    if (prev && prev.dataset.who === (l.speaker + '|' + l.app) && l.ts - +prev.dataset.last < 20 && !before) {
+      prev.querySelector('.t').textContent += ' ' + l.text;
+      prev.dataset.last = l.ts;
+      return true;
+    }
+    const div = document.createElement('div');
+    div.className = 'turn' + (me ? ' me' : '');
+    div.dataset.ts = l.ts; div.dataset.last = l.ts; div.dataset.who = l.speaker + '|' + l.app;
+    const who = document.createElement('div'); who.className = 'who';
+    who.textContent = me ? 'Me' : 'Them';
+    if (!me && l.app) { const s = document.createElement('span'); s.textContent = ' · ' + l.app; who.appendChild(s); }
+    const t = document.createElement('div'); t.className = 't'; t.textContent = l.text;
+    div.append(who, t);
+    lines.insertBefore(div, before);
+    return true;
+  }
+
+  function setState(f) {
+    state = f.state || 'stopped';
+    document.body.className = state;
+    $('state').textContent = { running: 'Recording', paused: 'Paused', starting: 'Starting…', error: 'Error' }[state] || 'Stopped';
+    $('apps').textContent = (f.apps && f.apps.length) ? '· ' + f.apps.join(', ') : '';
+    startedAt = f.started_at || null;
+    if (f.now) clockSkew = Date.now() / 1000 - f.now;
+    const p = $('pause'), s = $('stop');
+    p.disabled = !(state === 'running' || state === 'paused');
+    p.textContent = state === 'paused' ? 'Resume' : 'Pause';
+    if (state === 'stopped' || state === 'error') { s.className = 'btn start'; s.innerHTML = '<i></i>Start'; }
+    else { s.className = 'btn stop'; s.innerHTML = '<i></i>Stop'; }
+    const b = $('banner');
+    if (f.error) { b.textContent = f.error; b.classList.add('show'); } else b.classList.remove('show');
+    tick();
+  }
+
+  function tick() {
+    $('clock').textContent = (startedAt && state !== 'stopped') ? fmt(Date.now() / 1000 - clockSkew - startedAt) : '';
+  }
+  setInterval(tick, 1000);
+
+  $('mins').addEventListener('click', e => {
+    const m = e.target.dataset && e.target.dataset.m; if (!m) return;
+    minutes = +m;
+    for (const b of $('mins').children) b.classList.toggle('on', b === e.target);
+    $('q').placeholder = 'Ask about the last ' + m + ' min…';
+    $('q').focus();
+  });
+
+  const pending = {};
+  $('ask').addEventListener('submit', e => {
+    e.preventDefault();
+    const q = $('q').value.trim(); if (!q) return;
+    const id = nextId++;
+    const card = document.createElement('div'); card.className = 'qa';
+    const qd = document.createElement('div'); qd.className = 'q';
+    const qt = document.createElement('span'); qt.textContent = q;
+    const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = 'last ' + minutes + 'm';
+    qd.append(qt, meta);
+    const a = document.createElement('div'); a.className = 'a'; a.innerHTML = '<span class="spin"></span>Thinking…';
+    card.append(qd, a);
+    const box = $('answers');
+    box.appendChild(card);
+    while (box.children.length > 3) box.firstElementChild.remove();
+    box.scrollTop = box.scrollHeight;
+    pending[id] = { a, meta };
+    $('q').value = '';
+    post('ask', { id, question: q, minutes });
+  });
+
+  $('pause').onclick = () => post(state === 'paused' ? 'resume' : 'pause');
+  $('stop').onclick = () => post(state === 'stopped' || state === 'error' ? 'start' : 'stop');
+  $('close').onclick = () => post('hide');
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); post('hide'); }
+  });
+
+  window.rec = {
+    feed(f) {
+      if (f.reset) { seen.clear(); lines.innerHTML = ''; }
+      setState(f);
+      let added = false;
+      for (const l of f.lines || []) added = addLine(l) || added;
+      if (!lines.children.length) {
+        lines.innerHTML = state === 'running' || state === 'starting'
+          ? '<div class="empty"><b>Listening…</b>Lines appear here as people talk.</div>'
+          : '<div class="empty"><b>Not recording</b>Press Start, or ⌃⌥R over the app you want to capture.</div>';
+      }
+      if (added) { if (stick) lines.scrollTop = lines.scrollHeight; else $('jump').classList.add('show'); }
+    },
+    reply(id, r) {
+      const p = pending[id]; if (!p) return; delete pending[id];
+      if (r.error) { p.a.className = 'a err'; p.a.textContent = r.error; }
+      else { p.a.textContent = r.answer; if (r.seconds) p.meta.textContent += ' · ' + r.seconds + 's'; }
+    },
+    shown() { $('q').focus(); },
+  };
+  post('ready');
+})();
+</script>
+</body>
+</html>

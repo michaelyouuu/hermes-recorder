@@ -225,3 +225,10 @@ an aggregate device holding the tap, and a ctypes IOProc. Run inside Hermes Reco
 - The user still hears the call (CATapUnmuted). Works with EarPods as the output device.
 - Gotcha: pyobjc exposes the `kAudioAggregateDevice*Key` / `kAudioSubTap*Key` constants as **bytes**; passing them
   unconverted makes CoreAudio segfault inside `CreateAggregateDevice` (non-plist keys). Decode to str.
+
+## S6: recorder panel window (2026-11-05)
+`spikes/s6_panel.py` shows `helper/panel.py` with a fake gateway inside Hermes Recorder Helper.app.
+- PASS (observed): a non-activating panel at floating level (window layer 3) renders `panel.html` in a WKWebView over
+  an HUD-material blur; the JS bridge round-trips (page `ready` → feed polling every 1 s); the ask box gets focus.
+- Pending (Michael): typing into it over FaceTime/Edge without the call losing focus or audio; Esc hides.
+- `setup --hotkey` raced launchd (bootstrap right after bootout failed, agent not loaded); fixed with a retry.
