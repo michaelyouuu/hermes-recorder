@@ -190,6 +190,7 @@ M0 spikes actually ran on **macOS 26.6.2, Apple M4, Hermes v0.22.7 (`b200f5bc60e
 **Capture helper (`helper/`)**: its own Python process so a crash or permission failure never takes the agent down. It runs inside **`Hermes Recorder Helper.app`**, a bundle that `hermes recorder setup` generates locally: an Info.plist (bundle id `io.github.michaelyouuu.hermes-recorder.helper`, `LSUIElement`, mic/audio/screen usage strings) plus a copy of Hermes's own python interpreter as the executable, ad-hoc signed with `codesign -s -`. It lives under `plugin_data_dir`. Nothing compiled is committed (catalog rule 17). It is launched with `open -n --env PYTHONHOME=... --env PYTHONPATH=... -a <app> --args helper/main.py --socket <path> --token <t>` so macOS treats it as its own app; permissions are granted to "Hermes Recorder Helper" once. Rebuild it when the interpreter's hash changes (the user then re-grants), and have doctor detect that.
 - `capture_tap.py` (added after S5): per-app audio via CoreAudio **process taps** (macOS 14.2+), one private unmuted tap per chosen app over the processes `proc_match.py` resolves (FaceTime/Phone route to `avconferenced`; other apps match processes inside their bundle, e.g. Zoom `caphost`, Chromium/Electron helpers). Rebuilt when CoreAudio's process list changes. No window needed; lines attributed to the exact app.
 - `panel.py` + `panel.html` (added after S6): the **recorder panel**, our own floating HUD. A non-activating `NSPanel` with a `WKWebView`, hosted by the hotkey agent (which captures nothing). Q&A only (Michael didn't want a streamed transcript). ⌃⌥R shows/hides it and starts capture if off (`summon`); it polls `status` every 2 s while visible and sends `ask` (one `ctx.llm.complete` over recent lines, `hermes_recorder/ask.py`), `pause`/`resume`/`on`/`off` over the control socket. Nothing on disk.
+- `panel.html` also has **Save notes** (button + an offer on Stop) and sends the last 3 Q&As with each ask.
 - `capture_audio.py`: microphone, plus app audio only for apps a tap can't target (Safari, macOS < 14.2). Originally: ScreenCaptureKit stream with `capturesAudio=True`, `excludesCurrentProcessAudio=True`, filter including only allowed apps, 16 kHz mono. Microphone via `captureMicrophone` (macOS 15+) or `AVAudioEngine` (macOS 14) as a **separate stream** so transcript lines are labeled "me" vs "them". Mic arrives at 44.1 kHz: resample to 16 kHz.
 - `capture_events.py`: listen-only `CGEventTapCreate` for clicks and key-downs; resolve the element under the pointer or the focused element with Accessibility (`role`, `title`, `subrole`, app, window title). **If `subrole == AXSecureTextField`, never record characters**; emit `{SECRET}` (macOS Secure Event Input already withholds those keys; this is the second guard). Coalesce key-downs into "typed into field X" events: single-line fields record their short final value, multi-line fields record only the **delta** (inserted text, deleted count) against a snapshot taken before the first key, never the whole field. The tap callback only enqueues; AX look-ups run on a worker thread. Climb from static text or groups to the actionable ancestor (link, button); set `AXManualAccessibility` on Chromium apps; fall back to DOM id or nearby text for unlabeled `AXGroup`s; record selection ranges (not contents).
 - `capture_frames.py` (optional, off by default): `SCScreenshotManager` snapshot on app switch or significant change, downscaled, RAM only.
@@ -200,6 +201,13 @@ M0 spikes actually ran on **macOS 26.6.2, Apple M4, Hermes v0.22.7 (`b200f5bc60e
 - `__init__.py`: `register(ctx)` only registers. **No side effects in `register()`**: the validator runs it in isolation, and it may run in a plugin host. Start the helper lazily on `recorder_control start`, `/recorder on`, or the first tool call when `autostart` is true.
 - `buffer.py`: thread-safe ring buffer of typed events (`transcript`, `ui_event`, `app_switch`, `snapshot_ref`), trimmed by time; `slice(start, end)`; `search(query, minutes)`. Saved clips go to SQLite via `plugin_db`.
 - `helper_manager.py`: launches the helper app with `subprocess.run(["/usr/bin/open", "-n", ...])` (absolute paths, no shell, no `-W`, no `--stdout`), owns the socket, **waits for `hello` with a timeout** (reporting a clear error if it doesn't arrive), tracks the helper pid from `hello`, restarts with backoff (max 3), and stops it on `on_unload` and on `recorder_control stop` (control `stop`, then SIGTERM to the pid as a fallback).
+- `digest.py` (added after S8): fits a long window into a budget: newest lines verbatim, older ones summarized in
+  ~5 min chunks with `ctx.llm.complete` (parallel, cached in RAM, cleared by `forget`). Used by `screen_recall`
+  (12k chars), the panel's ask (24k) and notes (40k). Before it, the 6k cap silently kept only the last ~4.5 min.
+- `notes.py`: **Save notes**. `ctx.llm.complete_structured` (strict schema: `additionalProperties: false` on every
+  object) → markdown with frontmatter (`generator: hermes-recorder`) in `notes_dir` (default
+  `~/Documents/Hermes Notes`, fallback `~/Hermes Notes`), 0600, never overwrites, never the raw transcript.
+  `search`/`read` scan only our notes and only inside the notes folders.
 - `tools.py`: tool schemas and handlers (Section 6). Handlers return JSON strings and never raise.
 - `hooks.py`: `pre_llm_call` reads only an in-memory flag and counters (target under 5 ms; hooks are skipped after 30 s). Returns at most one line. `on_session_end` optionally writes a recap note for pinned clips.
 - `compiler.py`: buffer slice to normalized steps to `ctx.llm.complete_structured` with a JSON schema to `SKILL.md` text that passes the skill lint rules (Section 4).
@@ -240,8 +248,8 @@ homepage: https://github.com/michaelyouuu/hermes-recorder
 requires_hermes: ">=0.22.7"   # the version we test against (CI pins b200f5bc)
 platforms: [macos]
 tags: [voice, automation, desktop, recording, skills]
-provides_tools: [screen_recall, recorder_status, recorder_control, recorder_draft_skill]
-provides_hooks: [pre_llm_call, on_session_end]
+provides_tools: [screen_recall, recorder_status, recorder_control, recorder_draft_skill, recorder_save_notes, recorder_notes]
+provides_hooks: [pre_llm_call, on_session_end, pre_gateway_dispatch]
 config_schema:
   apps: {type: list, default: [], label: "Apps to capture", description: "Bundle ids, e.g. com.google.Chrome, us.zoom.xos"}
   buffer_minutes: {type: int, default: 30, label: "Buffer length (minutes)"}
@@ -293,6 +301,8 @@ def register(ctx):
 | `recorder_status` | none | running, apps, buffer span, permission status, helper health |
 | `recorder_control` | `op` (`start`/`stop`/`pause`/`resume`/`set_apps`), `apps` | new status |
 | `recorder_draft_skill` | `minutes` or `start`/`end`, `goal_hint` (optional) | `{"draft_md":"...","detected_inputs":[...],"questions":[...],"steps":[...]}` |
+| `recorder_save_notes` | `minutes` (default: current/last session), `title_hint` | `{"path","title","summary","minutes"}` |
+| `recorder_notes` | `query`, `days` (default 30), `path` | `{"notes":[{title,date,sources,tags,summary,path,(body)}],"folder"}` |
 
 Tool descriptions must say exactly when to use the tool (for example, "Use when the user asks about something they just heard or watched on screen"). Handlers return JSON strings and catch every exception, returning `{"error": "..."}`.
 
@@ -530,6 +540,11 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-05 | Panel `ask` runs `ctx.llm` in a copy of the latest gateway turn's context (captured in `pre_llm_call`) | Michael's gateway multiplexes profiles; credentials resolve only inside a turn's contextvar secret scope, so a call from our control thread raised `UnscopedSecretError` (seen live) |
 | 2026-11-05 | Transcribe pause-cut chunks (2–10 s, no overlap) with beam 5; base.en stays default | S7: overlap windows duplicated/mangled boundary words (WER 0.19); pause chunks reach the whole-clip ceiling (0.09) at similar CPU. Michael reported misheard words |
 | 2026-11-05 | Panel answers: plain conversational text, no markdown, no timestamps unless asked; markdown stripped as a backstop | Michael: answers full of asterisks and "~16s ago" |
+| 2026-11-06 | Save notes: markdown files in `notes_dir` (`~/Documents/Hermes Notes`), saved by button, Stop offer, `/recorder notes` or `recorder_save_notes`; found with `recorder_notes` | Michael wanted recall of what he's learning; Hermes memory caps at ~2.2k chars. Derived notes only, never the transcript. Chosen by Michael (folder, trigger, two new tools) |
+| 2026-11-06 | Long windows digested (recent verbatim, older summarized) instead of the newest 6k chars | Measured: "last 10/30 min" only saw ~4.5 min. Approved by Michael |
+| 2026-11-06 | `buffer_minutes` default 30 → 90 | One Save notes can cover a full lecture; ~80 KB of RAM. Approved with the plan |
+| 2026-11-06 | Panel sends its last 3 Q&As; "Waiting for Hermes" banner with Open Hermes | Follow-ups failed; S8 found no gateway-start hook, so the socket still starts on the first message |
+| 2026-11-06 | `hermes recorder check <app>` + `diag` control op | Lets users and us verify an app (Zoom, Meet, Twitch) before claiming support |
 | (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
 
 ---
