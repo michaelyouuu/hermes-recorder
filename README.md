@@ -56,10 +56,10 @@ The other side shows up as "them" lines and your microphone as "me". Headphones 
 
 ## Recorder panel and hotkey
 `hermes recorder setup` offers a **⌃⌥R** hotkey (or run `hermes recorder hotkey on`). Press it in any app and
-the **recorder panel** pops up over that app:
-- a live transcript, with the other side ("them", per app) on the left and your mic ("me") on the right;
-- an ask box ("what time did we agree on?") over the last 2, 5, 10 or 30 minutes, answered by your Hermes model
-  from the transcript alone (a quick lookup, not a full agent turn; for that, ask Hermes in chat or the HUD);
+the **recorder panel** pops up over that app. It's Q&A only (no scrolling transcript):
+- ask "what did he just say about X?" or "what time did we agree on?" over the last 2, 5, 10 or 30 minutes.
+  Your Hermes model answers from the transcript alone (a quick lookup, not a full agent turn; for that, ask
+  Hermes in chat or the HUD). It knows which lines came from the app and which from your microphone;
 - Pause/Resume and Stop/Start buttons.
 
 If capture is off, the press also starts recording (Tink). It records the apps you last chose, and the very first

@@ -157,11 +157,12 @@ def test_panel_summon_feed_pause_and_ask(gateway, short_dir):
     a = control.request(short_dir, "ask", args={"question": "what time?", "minutes": 5})
     assert a["answer"] == "3 PM Thursday" and a["lines"] >= 2
     assert "Question: what time?" in seen["messages"][1]["content"]
-    assert "(Zoom):" in seen["messages"][1]["content"]
+    assert "] Zoom: " in seen["messages"][1]["content"] and "] them" not in seen["messages"][1]["content"]
     assert seen["kw"]["purpose"] == "hermes-recorder: panel ask"
     assert "error" in control.request(short_dir, "ask", args={"question": "  "})
     control.request(short_dir, "off")
     assert control.request(short_dir, "feed")["started_at"] is None
+    assert control.request(short_dir, "status")["started_at"] is None
 
 
 def test_ask_errors_never_raise():

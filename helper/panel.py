@@ -2,8 +2,9 @@
 
 Runs in the hotkey agent (Hermes Recorder Helper.app in hotkey mode), which never captures anything itself. It is
 a non-activating NSPanel, so it takes typing without pulling focus from the call or video underneath, and it renders
-``panel.html`` in a WKWebView. Everything it shows comes from the gateway over the owner-only control socket:
-``feed`` once a second while visible, ``ask`` for questions, ``pause``/``resume``/``on``/``off`` for the buttons.
+``panel.html`` in a WKWebView: Q&A over the recent buffer, no live transcript. Everything comes from the gateway
+over the owner-only control socket: ``status`` every 2 s while visible, ``ask`` for questions,
+``pause``/``resume``/``on``/``off`` for the buttons.
 Nothing is written to disk.
 """
 from __future__ import annotations
@@ -24,8 +25,8 @@ from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 log = logging.getLogger("hermes_recorder_helper")
 
 HTML = Path(__file__).with_name("panel.html")
-W, H = 400, 540
-POLL_S = 1.0
+W, H = 400, 460
+POLL_S = 2.0
 NOT_LISTENING = "Hermes isn't listening yet. Send Hermes any message, then try again."
 
 # NSWindowStyleMask bits and other AppKit constants (numeric, so older pyobjc metadata can't trip us up)
@@ -73,8 +74,6 @@ class RecorderPanel:
         self.web = None
         self._ready = False
         self._visible = threading.Event()
-        self._reset = True
-        self._since = 0.0
         self._state = "unknown"  # last state from the gateway
         self._poller: threading.Thread | None = None
 
@@ -141,8 +140,6 @@ class RecorderPanel:
     def show(self) -> None:
         if self.win is None:
             self._build()
-        self._reset = True
-        self._since = 0.0
         self.win.orderFrontRegardless()
         self.win.makeKeyWindow()
         self.win.makeFirstResponder_(self.web)
@@ -176,8 +173,6 @@ class RecorderPanel:
         op = msg.get("op")
         if op == "ready":
             self._ready = True
-            self._reset = True
-            self._since = 0.0
             self._js("rec.shown()")
         elif op == "hide":
             self.hide()
@@ -201,8 +196,8 @@ class RecorderPanel:
 
     def _control(self, op: str) -> None:
         if op == "on":
-            self._push("feed", {"state": "starting", "lines": []})
-        self._push("feed", {**self._request(op), "lines": []})
+            self._push("status", {"state": "starting"})
+        self._push("status", self._request(op))
 
     def _ask(self, qid: Any, question: str, minutes: Any) -> None:
         t0 = time.time()
@@ -215,16 +210,12 @@ class RecorderPanel:
             if not self._visible.wait(timeout=30):
                 continue
             if self._ready:
-                r = self._request("feed", timeout=10, args={"since": self._since})
-                if r.get("now"):
-                    self._since = r["now"]
+                r = self._request("status", timeout=10)
                 self._state = r.get("state", "error")
-                if self._reset:
-                    r["reset"], self._reset = True, False
-                self._push("feed", r)
+                self._push("status", r)
             time.sleep(POLL_S)
 
     def note_starting(self) -> None:
         """The hotkey just asked the gateway to start capture (which takes a few seconds)."""
         if self._state in ("stopped", "error"):
-            self._push("feed", {"state": "starting", "lines": []})
+            self._push("status", {"state": "starting"})

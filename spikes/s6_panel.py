@@ -26,6 +26,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=float, default=60)
     ap.add_argument("--log", required=True)
+    ap.add_argument("--ask", help="type this question into the panel after it loads")
     a = ap.parse_args()
     logging.basicConfig(filename=a.log, level=logging.INFO, format="%(asctime)s %(message)s")
     log = logging.getLogger("hermes_recorder_helper")
@@ -54,11 +55,15 @@ def main() -> int:
     app.finishLaunching()
     panel = RecorderPanel(client)
     panel.show()
+    asked = False
     while time.time() - t0 < a.seconds:
         ev = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
             NSEventMaskAny, NSDate.dateWithTimeIntervalSinceNow_(0.5), NSDefaultRunLoopMode, True)
         if ev is not None:
             app.sendEvent_(ev)
+        if a.ask and not asked and time.time() - t0 > 3:
+            asked = True
+            panel._js(f"document.getElementById('q').value = {a.ask!r}; document.getElementById('ask').requestSubmit()")
         time.sleep(0)
     log.info("done visible=%s", panel.visible)
     return 0

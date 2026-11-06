@@ -288,7 +288,8 @@ def _feed(rec: Recorder, since: Any) -> dict[str, Any]:
 def _brief(rec: Recorder) -> dict[str, Any]:
     st = rec.status()
     return {"state": st["state"], "apps": [a["name"] for a in st["apps"]], "error": st["error"],
-            "minutes_available": st["buffer"]["minutes_available"]}
+            "minutes_available": st["buffer"]["minutes_available"], "started_at": rec.started_at,
+            "now": time.time()}
 
 
 def _socket_is_served(path: Path) -> bool:
