@@ -42,6 +42,20 @@ def text_delta(before: str, after: str) -> dict[str, Any]:
     return {"inserted": after[i:len(after) - j], "deleted_chars": len(before) - i - j}
 
 
+def page_url(url: Any) -> str | None:
+    """Scheme, host and path only: query strings and fragments often carry tokens or search terms."""
+    if not url:
+        return None
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(str(url))
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not u.netloc:
+        return None
+    return f"{u.scheme}://{u.netloc}{u.path}"[:200]
+
+
 def is_secure(info: dict[str, Any]) -> bool:
     return info.get("subrole") == "AXSecureTextField" or "secure" in str(info.get("role", "")).lower()
 
@@ -162,7 +176,20 @@ class EventCapture:
             w = self.attr(self.AX.AXUIElementCreateApplication(pid), "AXFocusedWindow")
             if w is not None:
                 ctx["window"] = str(self.attr(w, "AXTitle") or "")[:120]
+        url = self.web_url(el)
+        if url:
+            ctx["url"] = url
         return d, ctx
+
+    def web_url(self, el, depth: int = 30) -> str | None:
+        """The page URL for an element inside a web view (browsers, Electron apps), via its AXWebArea."""
+        for _ in range(depth):
+            if el is None:
+                return None
+            if self.attr(el, "AXRole") == "AXWebArea":
+                return page_url(self.attr(el, "AXURL"))
+            el = self.attr(el, "AXParent")
+        return None
 
     def check_app(self, ts: float) -> None:
         app = self.NSWorkspace.sharedWorkspace().frontmostApplication()

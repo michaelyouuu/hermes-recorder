@@ -320,6 +320,19 @@ def _control_handle(op: str, apps: list[str] | None, fallback_apps: list[str] | 
             rec.resume()
         elif op == "feed":
             return {**_brief(rec), **_feed(rec, args.get("since"))}
+        elif op == "steps":  # `hermes recorder steps`: what teach mode would see
+            from .teach import normalize
+            try:
+                minutes = min(max(float(args.get("minutes") or 5), 0.5), rec.buffer.max_age_s / 60)
+            except (TypeError, ValueError):
+                minutes = 5.0
+            entries = rec.buffer.recent(minutes)
+            events = [e for e in entries if e.kind == "ui_event"]
+            t0 = (min(e.ts for e in events) - 5) if events else time.time()
+            st = rec.status()
+            norm = normalize([e for e in entries if e.ts >= t0], t0)
+            return {**_brief(rec), "minutes": minutes, "events": (st.get("helper") or {}).get("events"),
+                    "steps": norm["steps"], "step_apps": norm["apps"]}
         elif op == "record_call":  # the panel's "Record this call?": start, or add the app to what's running
             if rec.manager.state in ("running", "paused", "starting"):
                 if apps and not set(resolve_apps(apps)) <= set(rec.manager.apps):

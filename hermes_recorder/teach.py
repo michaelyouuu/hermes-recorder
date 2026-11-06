@@ -116,6 +116,8 @@ def normalize(entries: list, t0: float) -> dict[str, Any]:
         step: dict[str, Any] = {"t": t, "app": name}
         if d.get("window"):
             step["window"] = d["window"]
+        if d.get("url"):
+            step["url"] = d["url"]
         kind = d.get("kind")
         if kind == "click":
             if e.app == "com.apple.dock" and target.get("title"):
@@ -165,7 +167,8 @@ def _slug(v: Any) -> str:
     return (s or "recorded-task")[:64].rstrip("-")
 
 
-def render(d: dict[str, Any], *, apps: list[str], duration_s: float, when: float) -> str:
+def render(d: dict[str, Any], *, apps: list[str], duration_s: float, when: float,
+           start_url: str | None = None) -> str:
     name = _slug(d.get("name"))
     desc = _clean(d.get("description"), 60) or "Recorded task"
     tags = [t for t in (_slug(x) for x in (d.get("tags") or [])[:5]) if t] or ["recorded"]
@@ -191,6 +194,7 @@ def render(d: dict[str, Any], *, apps: list[str], duration_s: float, when: float
         "",
         *[f"- {_clean(w)}" for w in (d.get("when_to_use") or [])[:6]],
         "",
+        *([f"Start here: {_clean(start_url, 200)}", ""] if start_url else []),
         "## Inputs",
         "",
     ]
@@ -303,12 +307,15 @@ def draft(minutes: Any = 5, goal_hint: str | None = None, rec: Any = None, llm: 
         d = getattr(res, "parsed", None)
         if not isinstance(d, dict):
             return {"error": "The model didn't return a draft in the expected shape; try again."}
-        md = render(d, apps=norm["apps"], duration_s=now - t0, when=t0)
+        start_url = next((s["url"] for s in norm["steps"] if s.get("url")), None)
+        md = render(d, apps=norm["apps"], duration_s=now - t0, when=t0, start_url=start_url)
         problems = lint(md)
         return {
             "name": _slug(d.get("name")), "draft_md": md, "lint": problems,
             "detected_inputs": d.get("inputs") or [], "questions": (d.get("edge_case_questions") or [])[:3],
             "approval_points": d.get("approval_points") or [], "steps_recorded": len(norm["steps"]),
+            "recorded_steps": [{k: s[k] for k in ("n", "app", "action", "target", "text", "said") if k in s}
+                               for s in norm["steps"][:40]],
             "next": ("Show the user this draft and ask the questions. Revise the draft with their answers (replace "
                      "'unanswered' edge cases with the answers), show the final version, and only after they "
                      "approve save it with skill_manage (action: create, name, content). Then offer a test run on "

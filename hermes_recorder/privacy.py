@@ -77,5 +77,5 @@ def sanitize(msg: Message, allowlist: Iterable[str]) -> Message | None:
             # Second guard: never keep anything typed into a secure field.
             fields.pop("inserted", None)
             fields["value"] = SECRET
-        return Message(msg.type, msg.ts, _mask_fields(fields, ("value", "inserted")), msg.v)
+        return Message(msg.type, msg.ts, _mask_fields(fields, ("value", "inserted", "url")), msg.v)
     return msg

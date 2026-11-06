@@ -36,6 +36,8 @@ def setup_parser(parser) -> None:
     c.add_argument("app", nargs="?", help="App name or bundle id, e.g. zoom, chrome, 'Microsoft Teams' "
                                           "(default: whatever is being captured now)")
     c.add_argument("--seconds", type=float, default=30, help="How long to listen (default 30)")
+    sp = sub.add_parser("steps", help="Show the clicks and typing teach mode recorded (what Hermes would learn from)")
+    sp.add_argument("--minutes", type=float, default=5, help="How far back (default 5)")
     h = sub.add_parser("hotkey", help="Install, remove or check the global recording hotkey")
     h.add_argument("action", choices=["on", "off", "status"])
     h.add_argument("--combo", help="Key combination, e.g. ctrl+opt+r (default: the 'hotkey' setting)")
@@ -270,8 +272,50 @@ def _doctor(paths: setup.Paths) -> int:
     return code
 
 
+def format_step(s: dict) -> str:
+    line = f"{s.get('n', '?'):>3}. [{s.get('app') or '?'}] {s.get('action', '')}"
+    if s.get("target"):
+        line += f" {s['target']}"
+    if s.get("text") not in (None, ""):
+        line += f" ← {s['text']!r}"
+    if s.get("then_press"):
+        line += f" + {s['then_press']}"
+    if s.get("url"):
+        line += f"  @ {s['url']}"
+    if s.get("said"):
+        line += f"\n       “{s['said']}”"
+    return line
+
+
+def _steps(minutes: float, req=None, out=print) -> int:
+    req = req or (lambda op, **kw: control.request(runtime.data_dir(), op, timeout=20, **kw))
+    try:
+        r = req("steps", args={"minutes": minutes})
+    except ConnectionError:
+        out(NOT_LOADED)
+        return 1
+    if r.get("error"):
+        out(f"Recorder: {r['error']}")
+        return 1
+    steps = r.get("steps") or []
+    if not steps:
+        why = {"needs_input_monitoring": " Teach mode is missing Input Monitoring: `hermes recorder teach on`.",
+               "needs_accessibility": " Teach mode is missing Accessibility: `hermes recorder teach on`.",
+               "off": " Teach mode is off for this recording: `hermes recorder teach on`, then record again."}
+        out(f"No clicks or typing in the last {r.get('minutes', minutes):g} min."
+            + why.get(r.get("events") or "", " Teach mode only records apps being captured "
+                                              f"(now: {', '.join(r.get('apps') or []) or 'none'})."))
+        return 1
+    out(f"{len(steps)} step(s) in {', '.join(r.get('step_apps') or []) or '?'} (last {r.get('minutes', minutes):g} min):")
+    for s in steps:
+        out(format_step(s))
+    return 0
+
+
 def run(args) -> int:
     cmd = getattr(args, "recorder_cmd", None) or "status"
+    if cmd == "steps":
+        return _steps(float(getattr(args, "minutes", 5) or 5))
     if cmd == "teach":
         return _teach(args.action)
     if cmd == "check":

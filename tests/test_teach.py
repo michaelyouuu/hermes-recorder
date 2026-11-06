@@ -165,3 +165,40 @@ def test_warnings_explain_silence_and_missing_permissions(ctx):
 def test_draft_says_when_teach_permissions_are_missing(ctx):
     rec = _rec_with({"events": "needs_input_monitoring"})
     assert "teach on" in teach.draft(5, rec=rec, llm=LLM())["error"]
+
+
+def test_start_url_and_steps_preview(ctx):
+    b = RingBuffer(90)
+    for e in linear_demo():
+        if e.kind == "ui_event":
+            e.data["url"] = "https://linear.app/acme/team/ENG/active"
+        b.add(e)
+    r = teach.draft(5, rec=type("R", (), {"buffer": b})(), llm=LLM(), runner=lambda f, *a, **k: f(*a, **k))
+    assert "Start here: https://linear.app/acme/team/ENG/active" in r["draft_md"] and r["lint"] == []
+    assert r["recorded_steps"][1] == {"n": 2, "app": "Microsoft Edge", "action": "click", "target": '"New issue" button',
+                                      "said": "I'll file the onboarding bug from the call, it's blocking launch"}
+
+
+def test_page_url_keeps_only_scheme_host_path():
+    import importlib.util
+    import pathlib
+    spec = importlib.util.spec_from_file_location(
+        "ce", pathlib.Path(__file__).parents[1] / "helper" / "capture_events.py")
+    ce = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ce)
+    assert ce.page_url("https://linear.app/acme/issue/ENG-1?token=abc#x") == "https://linear.app/acme/issue/ENG-1"
+    assert ce.page_url("file:///Users/x/secret.txt") is None and ce.page_url(None) is None
+
+
+def test_steps_cli_prints_steps_and_explains_empty():
+    from hermes_recorder import cli
+    out = []
+    r = {"steps": [{"n": 1, "app": "Edge", "action": "type", "target": '"Title" field', "text": "Fix SSO",
+                    "then_press": "return", "url": "https://linear.app/a", "said": "file it"}],
+         "step_apps": ["Edge"], "minutes": 5}
+    assert cli._steps(5, req=lambda op, **kw: r, out=out.append) == 0
+    assert "  1. [Edge] type \"Title\" field ← 'Fix SSO' + return  @ https://linear.app/a" in out[1]
+    out.clear()
+    assert cli._steps(5, req=lambda op, **kw: {"steps": [], "events": "needs_input_monitoring", "minutes": 5},
+                      out=out.append) == 1
+    assert "teach on" in out[0]

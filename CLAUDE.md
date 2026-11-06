@@ -572,7 +572,8 @@ Record the demo, fix review feedback, post on X, submit the Typeform. Keep Tuesd
 | 2026-11-06 | Meeting notes: decisions + `{task, owner, due}` action items first; the teach draft gets the last meeting's action items; follow-up runs through the bundled `replay-recorded` skill in chat | Ties notes → taught skill → follow-up. Plugins can't start an agent turn, so "Follow up" is a chat request, not a panel button |
 | 2026-11-06 | Permissions via one guided flow (`guide.py`: ask → open Settings → wait) in setup, doctor and `hermes recorder teach on|off`; hotkey agent KeepAlive + `hotkey.json`; doctor flags duplicate helper bundles | Seen live: grants flipped off because a spike build shared the bundle id, and macOS quit the agent on every permission change. Michael: setup must be simple |
 | 2026-11-06 | Status warnings (silent app, app not open, teach permission missing) shown in the panel and `recorder_status`; `check` lists what's actually playing | Seen live: a Zoom session produced 0 lines with no explanation |
-| (pending) | Catalog category: `automation` vs `voice` | Discuss with me |
+| 2026-11-06 | Desktop chip/pane cut (the panel is the UI); catalog category `automation`; demo on a FaceTime call with a friend; repo public Mon Nov 9 with the PR | Chosen by Michael |
+| 2026-11-06 | `hermes recorder steps` shows what teach mode recorded; events carry the page URL (scheme+host+path only) so skills say where to start | Judge capture on real data before the model sees it; replay needs a starting page |
 
 ---
 
