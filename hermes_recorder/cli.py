@@ -7,7 +7,7 @@ import time
 
 import sys
 
-from . import control, doctor, hotkey_agent, runtime, setup
+from . import audio_procs, control, doctor, guide, hotkey_agent, runtime, setup
 
 NOT_LOADED = ("Hermes hasn't loaded the recorder in the gateway yet (it starts listening on the first "
               "message or chat after a restart). Send Hermes any message, then retry.")
@@ -24,7 +24,9 @@ def setup_parser(parser) -> None:
                     help="Install the global recording hotkey without asking")
     hk.add_argument("--no-hotkey", dest="hotkey_choice", action="store_const", const=False,
                     help="Don't install the global recording hotkey")
-    sub.add_parser("doctor", help="Check permissions and helper health, with exact fix steps")
+    sub.add_parser("doctor", help="Check permissions and helper health, and fix what's missing")
+    tm = sub.add_parser("teach", help="Turn teach mode (clicks and typing in captured apps) on or off")
+    tm.add_argument("action", choices=["on", "off"])
     on = sub.add_parser("on", help="Start capture in the running gateway (last apps if none given)")
     on.add_argument("apps", nargs="*", help="Bundle ids, e.g. com.google.Chrome")
     sub.add_parser("off", help="Stop capture in the running gateway")
@@ -69,17 +71,16 @@ def _setup(args) -> int:
         return 1
     events = bool(runtime.config("capture_events"))
     if not getattr(args, "no_prompts", False):
-        print("Asking macOS for permissions. Approve the prompts for 'Hermes Recorder Helper'.")
-        pf = setup.run_preflight(paths, request=True, events=events)
-        if "error" in pf:
-            print(pf["error"])
+        print("Permissions (macOS asks once, for “Hermes Recorder Helper”):")
+        guide.ensure(paths, guide.BASIC + (guide.TEACH if events else ()))
     _offer_hotkey(paths, getattr(args, "hotkey_choice", None))
     text, code = doctor.render(doctor.check(paths, needs_events=events))
     print(text)
     if code:
-        print("\nAfter switching a permission on, run `hermes recorder doctor` to confirm.")
+        print("\nRun `hermes recorder doctor` to finish.")
     else:
-        print("\nReady. In Hermes: /recorder on com.google.Chrome (or any app's bundle id).")
+        print("\nReady. Press ⌃⌥R in any app (or join a call) and Hermes takes it from there."
+              + ("" if events else "\nWant Hermes to learn tasks from what you do? `hermes recorder teach on`"))
     return code
 
 
@@ -213,8 +214,12 @@ def _check(app: str | None, seconds: float, req=None, sleep=time.sleep, out=prin
         if missing:
             out("   The app isn't running or has no audio process yet. Open it and start playing, then retry.")
         elif not heard:
-            out("   No sound reached the recorder. Is it playing? Is it muted inside the app? For a call, wait until "
-                "someone talks.")
+            out("   No sound reached the recorder. Is it playing, and not muted inside the app? On a call, someone "
+                "else has to talk (your own voice is the microphone line).")
+            playing = sorted({p["label"] for p in audio_procs.active() if p["output"]
+                              and "Hermes Recorder Helper" not in p["label"]})
+            if playing:
+                out(f"   Playing sound right now: {', '.join(playing)}.")
         elif not got:
             out("   Sound arrived but nothing was transcribed. Is it speech (music isn't transcribed)? Try a longer "
                 "--seconds.")
@@ -227,8 +232,48 @@ def _check(app: str | None, seconds: float, req=None, sleep=time.sleep, out=prin
     return 0 if ok else 1
 
 
+def _teach(action: str, paths: setup.Paths | None = None) -> int:
+    paths = paths or setup.Paths(runtime.data_dir())
+    ctx = runtime._ctx
+    if action == "off":
+        if ctx is not None:
+            ctx.set_config("capture_events", False)
+        print("Teach mode off. Clicks and typing aren't recorded (from the next recording on).")
+        return 0
+    ok, why = setup.build_is_current(paths, setup.host_python())
+    if not ok:
+        print(f"Run `hermes recorder setup` first ({why}).")
+        return 1
+    print("Teach mode records what you click and type in the apps being recorded, so Hermes can learn a task\n"
+          "from watching you do it once. Passwords are never read. It needs two more macOS permissions.")
+    if not guide.ensure(paths, guide.TEACH):
+        return 1
+    if ctx is not None:
+        ctx.set_config("capture_events", True)
+    print("Teach mode on. It starts with your next recording. Do a task, then tell Hermes "
+          "“turn what I just did into a skill”.")
+    return 0
+
+
+def _doctor(paths: setup.Paths) -> int:
+    events = bool(runtime.config("capture_events"))
+    rows = doctor.check(paths, needs_events=events)
+    text, code = doctor.render(rows)
+    print(text)
+    perms = next((r.get("perms") for r in rows if r.get("perms") is not None), None)
+    if code and perms is not None and guide.interactive():
+        todo = guide.missing(perms, guide.BASIC + (guide.TEACH if events else ()))
+        if todo and input("\nFix the permissions now? [Y/n] ").strip().lower() in ("", "y", "yes"):
+            if guide.ensure(paths, tuple(todo)):
+                text, code = doctor.render(doctor.check(paths, needs_events=events))
+                print("\n" + text)
+    return code
+
+
 def run(args) -> int:
     cmd = getattr(args, "recorder_cmd", None) or "status"
+    if cmd == "teach":
+        return _teach(args.action)
     if cmd == "check":
         return _check(getattr(args, "app", None), float(getattr(args, "seconds", 30) or 30))
     if cmd in ("on", "off", "toggle"):
@@ -240,8 +285,5 @@ def run(args) -> int:
     if cmd == "setup":
         return _setup(args)
     if cmd == "doctor":
-        paths = setup.Paths(runtime.data_dir())
-        text, code = doctor.render(doctor.check(paths, needs_events=bool(runtime.config("capture_events"))))
-        print(text)
-        return code
+        return _doctor(setup.Paths(runtime.data_dir()))
     return 2

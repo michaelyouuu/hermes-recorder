@@ -36,7 +36,7 @@ def test_plist_runs_helper_app_in_hotkey_mode(tmp_path, fake_python):
     assert pl["Label"] == hotkey_agent.LABEL and pl["RunAtLoad"] is True
     assert args[0].endswith("Contents/MacOS/" + setup.HELPER_EXE) and args[1].endswith("helper/main.py")
     assert args[args.index("--hotkey") + 1] == "ctrl+opt+r" and args[args.index("--data-dir") + 1] == str(tmp_path)
-    assert pl["KeepAlive"] == {"SuccessfulExit": False}
+    assert pl["KeepAlive"] is True and pl["ThrottleInterval"] == 5  # comes back after macOS quits it
     assert pl["EnvironmentVariables"]["HF_HUB_OFFLINE"] == "1"
 
 

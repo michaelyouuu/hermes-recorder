@@ -47,8 +47,9 @@ are summarized in five-minute pieces (cached, so follow-up questions are fast).
 ```sh
 hermes plugins install michaelyouuu/hermes-recorder   # once it's in the catalog
 hermes plugins enable hermes-recorder
-hermes recorder setup     # builds the helper, downloads the model, asks for permissions
-hermes recorder doctor    # every check should be ✓
+hermes recorder setup     # builds the helper, downloads the model, walks you through permissions
+hermes recorder teach on  # optional: let Hermes learn tasks from what you do
+hermes recorder doctor    # anything missing? it tells you and offers to fix it
 ```
 Then in any Hermes surface: `/recorder on facetime` (or `zoom`, `edge`, `chrome`, `"Microsoft Teams"`, or any app's
 bundle id such as `com.google.Chrome`) and ask away. `/recorder off` stops it.
@@ -71,12 +72,11 @@ The other side shows up as "them" lines and your microphone as "me". Headphones 
 - the transcription model (`base.en`, ~280 MB on disk), downloaded once from Hugging Face.
 
 ## Teach mode
-1. Turn it on: Settings → Plugins → hermes-recorder → **Capture clicks and typing**, or
-   `hermes config set plugins.entries.hermes-recorder.settings.capture_events true`.
-2. Allow **Accessibility** and **Input Monitoring** for Hermes Recorder Helper (`hermes recorder doctor` links to both).
-3. Capture the app you work in too (`/recorder on zoom edge`): teach mode records clicks and typing **only in apps
+1. Run `hermes recorder teach on`. It asks macOS for the two extra permissions (Accessibility, Input Monitoring),
+   opens the right Settings page, and waits until each is on. `hermes recorder teach off` turns it off again.
+2. Capture the app you work in too (`/recorder on zoom edge`): teach mode records clicks and typing **only in apps
    being captured**.
-4. Do the task, ideally saying why you make each choice. Then ask Hermes: "turn what I just did into a skill".
+3. Do the task, ideally saying why you make each choice. Then ask Hermes: "turn what I just did into a skill".
 
 What's recorded: the element you clicked ("New issue" button), short field values or just the text you added to long
 fields, shortcuts such as ⌘↩, and the window title. Password fields are never read (macOS withholds those keys
@@ -128,8 +128,12 @@ Stop. The panel doesn't take focus from your call or video, floats on every Spac
 | Microphone | your own voice ("me" lines) | Allow on the prompt |
 | Accessibility, Input Monitoring | teach mode only (clicks and typing in captured apps) | switch on in System Settings when you enable teach mode |
 
-`hermes recorder doctor` shows what's missing and links straight to the right Settings page. If Hermes's Python
-is updated, `setup` rebuilds the helper and macOS asks again.
+`setup` and `teach on` walk you through each one: they ask macOS, open the right Settings page and wait until it's
+on. `hermes recorder doctor` checks everything later and offers the same walkthrough. If Hermes's Python is updated,
+`setup` rebuilds the helper and macOS asks again.
+
+If a permission keeps switching itself off, another copy of the helper app is around (macOS keys permissions by app
+id). `doctor` lists any copies so you can delete them.
 
 ## Privacy and disclosure
 - **Off by default**, per app, and password managers are never captured, even if listed.

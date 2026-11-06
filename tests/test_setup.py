@@ -152,7 +152,7 @@ def test_doctor_permission_rows(tmp_path, fake_python, monkeypatch):
           "mic_supported": True, "screen_capture_works": False}
     text, code = doctor.render(doctor.check(paths, run_preflight=lambda *a, **k: pf))
     assert code == 1 and "✗ Permission: Screen & System Audio Recording" in text
-    assert "Privacy_ScreenCapture" in text and "✓ Permission: Microphone" in text
+    assert "walk you through it" in text and "✓ Permission: Microphone" in text
     assert "· Permission: Accessibility" in text  # teach-mode only: not counted as a failure
     pf["permissions"]["screen_capture"] = True
     pf["screen_capture_works"] = True

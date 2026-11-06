@@ -53,12 +53,18 @@ def check(paths: setup.Paths, run_preflight: Callable[..., dict] = setup.run_pre
         return rows
     row("Helper app launch", True, f"pid {pf.get('pid')}")
     perms = pf.get("permissions", {})
+    rows[-1]["perms"] = perms
+    dupes = setup.duplicate_apps(paths)
+    if dupes:
+        row("Only one helper app", False, f"{len(dupes)} other copy(ies)",
+            "Other apps with the helper's bundle id confuse macOS permissions (they flip off). Move these to the "
+            "Trash, then run doctor again: " + "; ".join(dupes))
     for key, (label, why_needed) in PERMISSION_LABELS.items():
         teach = key in ("accessibility", "input_monitoring")
         granted = _granted(key, perms.get(key))
         fix = ("" if granted else
-               f"System Settings > Privacy & Security > {label}: switch on 'Hermes Recorder Helper' "
-               f"(add it with + from {paths.app} if it isn't listed). Open: {SETTINGS[key]}")
+               f"Run `hermes recorder doctor` in a terminal and let it walk you through it, or switch on "
+               f"'Hermes Recorder Helper' in System Settings > Privacy & Security > {label}.")
         row(f"Permission: {label}", granted, why_needed, fix, required=not teach or needs_events)
     if perms.get("screen_capture") and not pf.get("screen_capture_works"):
         row("Screen capture works", False, pf.get("screen_capture_error", ""),
@@ -70,13 +76,17 @@ def check(paths: setup.Paths, run_preflight: Callable[..., dict] = setup.run_pre
         hk = hotkey_agent.status()
         want = str(runtime.config("hotkey") or hotkey_agent.DEFAULT_COMBO)
         if hk["installed"]:
-            detail = f"{hotkey_agent.pretty(hk['combo'] or '?')} {'running' if hk['running'] else 'not running'}"
-            fix = ""
+            key = hotkey_agent.pretty(hk["combo"] or "?")
+            ok_hk = hk["running"] and hk["registered"] is not False and hk["combo"] == want and not hk["outdated"]
+            detail, fix = f"{key} ready", ""
             if not hk["running"]:
-                fix = "Another app may own this combination: change the 'hotkey' setting and run `hermes recorder hotkey on`."
-            elif hk["combo"] != want:
-                fix = "The 'hotkey' setting changed: run `hermes recorder hotkey on` to apply it."
-            row("Recording hotkey", hk["running"] and hk["combo"] == want, detail, fix, required=False)
+                detail, fix = f"{key} not running", "Run `hermes recorder hotkey on`."
+            elif hk["registered"] is False:
+                detail = f"{key} is taken by another app"
+                fix = "Pick another, e.g. `hermes config set plugins.entries.hermes-recorder.settings.hotkey cmd+shift+r`, then `hermes recorder hotkey on`."
+            elif hk["combo"] != want or hk["outdated"]:
+                fix = "Run `hermes recorder hotkey on` to apply the latest settings."
+            row("Recording hotkey", ok_hk, detail, fix, required=False)
         else:
             row("Recording hotkey", False, "not installed (optional)", "`hermes recorder hotkey on`", required=False)
     except Exception:

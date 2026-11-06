@@ -157,6 +157,18 @@ def clean_env(**extra: str) -> dict[str, str]:
     return env
 
 
+def duplicate_apps(paths: Paths, run: Run = subprocess.run) -> list[str]:
+    """Other app bundles with the helper's bundle id (Spotlight). macOS keys permissions by bundle id, so a stray
+    copy (an old build, a backup) makes grants flip between them."""
+    try:
+        r = run(["/usr/bin/mdfind", f"kMDItemCFBundleIdentifier == '{HELPER_BUNDLE_ID}'"], capture_output=True,
+                text=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    mine = str(paths.app.resolve())
+    return [p for p in (r.stdout or "").splitlines() if p.strip() and str(Path(p).resolve()) != mine]
+
+
 def build_is_current(paths: Paths, python: Path) -> tuple[bool, str]:
     b = read_build(paths)
     if b is None:

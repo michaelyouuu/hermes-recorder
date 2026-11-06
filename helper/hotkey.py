@@ -9,7 +9,9 @@ toggling capture.
 from __future__ import annotations
 
 import ctypes
+import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -19,6 +21,16 @@ log = logging.getLogger("hermes_recorder_helper")
 from hermes_recorder.hotkeys import parse_combo  # shared with the plugin (stdlib only)
 
 SOUNDS = {"on": "Tink", "off": "Pop", "error": "Basso"}
+STATUS_FILE = "hotkey.json"  # read by `hermes recorder doctor` (hermes_recorder/hotkey_agent.py)
+
+
+def _write_status(data_dir: Path, **fields) -> None:
+    try:
+        tmp = data_dir / f".{STATUS_FILE}.tmp"
+        tmp.write_text(json.dumps({"pid": os.getpid(), "ts": time.time(), **fields}))
+        os.replace(tmp, data_dir / STATUS_FILE)
+    except OSError as e:
+        log.debug("could not write hotkey status: %s", e)
 
 
 class _EventTypeSpec(ctypes.Structure):
@@ -157,16 +169,20 @@ def run(combo: str, data_dir: str) -> int:
     spec = _EventTypeSpec(int.from_bytes(b"keyb", "big"), 5)  # kEventClassKeyboard, kEventHotKeyPressed
     handler_ref = ctypes.c_void_p()
     err = carbon.InstallEventHandler(target, on_hotkey, 1, ctypes.byref(spec), None, ctypes.byref(handler_ref))
+    ref = ctypes.c_void_p()
     if err:
         log.error("InstallEventHandler failed: %s", err)
-        return 0  # clean exit: launchd only restarts crashes, and retrying won't help
-    ref = ctypes.c_void_p()
-    err = carbon.RegisterEventHotKey(keycode, mask, _HotKeyID(int.from_bytes(b"hrec", "big"), 1), target, 0,
-                                     ctypes.byref(ref))
+    else:
+        err = carbon.RegisterEventHotKey(keycode, mask, _HotKeyID(int.from_bytes(b"hrec", "big"), 1), target, 0,
+                                         ctypes.byref(ref))
     if err:
+        # Keep running without the shortcut: call offers still work, and launchd (KeepAlive) would only restart us
+        # into the same failure. Doctor reads the status file and says what to change.
         log.error("RegisterEventHotKey(%s) failed: %s (another app may own this combination)", combo, err)
-        return 0  # clean exit, see above; doctor reports the agent as not running
-    log.info("hotkey %s registered", combo)
+        _write_status(data, combo=combo, registered=False, error=f"another app uses {combo}")
+    else:
+        log.info("hotkey %s registered", combo)
+        _write_status(data, combo=combo, registered=True)
     while True:  # pump the app event queue so Carbon hotkey events are dispatched
         ev = app.nextEventMatchingMask_untilDate_inMode_dequeue_(
             NSEventMaskAny, NSDate.dateWithTimeIntervalSinceNow_(1.0), NSDefaultRunLoopMode, True)

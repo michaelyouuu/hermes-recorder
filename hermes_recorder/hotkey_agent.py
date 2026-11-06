@@ -5,6 +5,7 @@ capture. It never captures anything itself.
 """
 from __future__ import annotations
 
+import json
 import os
 import plistlib
 import subprocess
@@ -38,7 +39,8 @@ def plist_bytes(paths: setup.Paths, combo: str) -> bytes:
                              "--log", str(paths.logs / "hotkey.log")],
         "EnvironmentVariables": setup.helper_env(paths),
         "RunAtLoad": True,
-        "KeepAlive": {"SuccessfulExit": False},  # restart if it crashes, not if it exits cleanly
+        "KeepAlive": True,  # macOS quits it when the helper's permissions change; always come back
+        "ThrottleInterval": 5,
         "ProcessType": "Interactive",
         "LimitLoadToSessionType": "Aqua",
     })
@@ -75,5 +77,17 @@ def status(run: Run = subprocess.run) -> dict:
             combo = args[args.index("--hotkey") + 1]
         except Exception:
             pass
-    return {"installed": p.exists(), "running": running, "combo": combo}
+    out = {"installed": p.exists(), "running": running, "combo": combo, "registered": None, "error": None,
+           "outdated": False}
+    if p.exists():
+        try:
+            out["outdated"] = plistlib.loads(p.read_bytes()).get("KeepAlive") is not True
+        except Exception:
+            pass
+    try:
+        hs = json.loads((runtime.data_dir() / "hotkey.json").read_text())
+        out["registered"], out["error"] = hs.get("registered"), hs.get("error")
+    except (OSError, ValueError):
+        pass
+    return out
 
